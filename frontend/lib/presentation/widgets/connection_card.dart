@@ -1,4 +1,4 @@
-import 'package:dbpilot/core/constants/app_assets.dart';
+import 'package:dbpilot/models/database_provider.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/connection_profile.dart';
@@ -13,23 +13,8 @@ class ConnectionCard extends StatelessWidget {
   final ConnectionProfile profile;
   final VoidCallback? onConnect;
 
-  String _providerAsset() {
-    switch (profile.provider.name) {
-      case 'sqlServer':
-        return AppAssets.sqlServer;
-      case 'oracle':
-        return AppAssets.oracle;
-      case 'postgresql':
-        return AppAssets.postgre;
-      default:
-        return '';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final providerAsset = _providerAsset();
-
     return Card(
       color: const Color(0xFF132238),
       shape: RoundedRectangleBorder(
@@ -39,36 +24,20 @@ class ConnectionCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: providerAsset.isNotEmpty
-                  ? Image.asset(
-                      providerAsset,
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 44,
-                        height: 44,
-                        color: const Color(0xFF0D1828),
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          Icons.storage_rounded,
-                          color: Colors.white70,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      width: 44,
-                      height: 44,
-                      color: const Color(0xFF0D1828),
-                      alignment: Alignment.center,
-                      child: const Icon(
-                        Icons.storage_rounded,
-                        color: Colors.white70,
-                      ),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D1828),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Image.asset(
+                      profile.provider.asset,
+                      width: 32,
+                      height: 32,
                     ),
-            ),
+              ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

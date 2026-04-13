@@ -1,8 +1,12 @@
+import 'package:dbpilot/models/database_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../models/connection_profile.dart';
+import '../../models/connection_request.dart';
 import '../../services/mock_connections_service.dart';
 import '../widgets/connection_card.dart';
+import 'connection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,7 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _service = MockConnectionsService();
-  late final List connections;
+  late final List<ConnectionProfile> connections;
   BannerAd? _bannerAd;
   int _currentIndex = 0;
 
@@ -33,6 +37,26 @@ class _HomeScreenState extends State<HomeScreen> {
         onAdFailedToLoad: (ad, error) => ad.dispose(),
       ),
     )..load();
+  }
+
+  Future<void> _openConnectionScreen() async {
+    final result = await Navigator.of(context).push<ConnectionRequest>(
+      MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+    );
+
+    if (!mounted || result == null) return;
+
+    setState(() {
+      connections.insert(0, ConnectionProfile.fromRequest(result));
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${result.provider.label} connection "${result.name}" captured.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -122,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   FilledButton.icon(
-                    onPressed: () {},
+                    onPressed: _openConnectionScreen,
                     icon: const Icon(Icons.add),
                     label: const Text('New Connection'),
                   ),
