@@ -53,6 +53,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _portController.text = provider.defaultPort;
       _statusMessage = null;
       _statusSuccess = null;
+
       if (provider == DatabaseProvider.oracle) {
         _databaseController.clear();
         _serviceNameController.text = 'XE';
@@ -71,13 +72,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       database: _databaseController.text.trim(),
       serviceName: _selectedProvider == DatabaseProvider.oracle
           ? _serviceNameController.text.trim().isEmpty
-              ? null
-              : _serviceNameController.text.trim()
+                ? null
+                : _serviceNameController.text.trim()
           : null,
       sid: _selectedProvider == DatabaseProvider.oracle
           ? _sidController.text.trim().isEmpty
-              ? null
-              : _sidController.text.trim()
+                ? null
+                : _sidController.text.trim()
           : null,
       encrypt: _selectedProvider == DatabaseProvider.sqlServer ? _encrypt : false,
       trustServerCertificate: _selectedProvider == DatabaseProvider.sqlServer
@@ -87,9 +88,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _testConnection() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _loading = true;
@@ -100,6 +99,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     try {
       final result = await _apiService.testConnection(_buildRequest());
       if (!mounted) return;
+
       setState(() {
         _statusSuccess = result.success;
         _statusMessage = result.durationMs == null
@@ -108,6 +108,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       });
     } catch (error) {
       if (!mounted) return;
+
       setState(() {
         _statusSuccess = false;
         _statusMessage = error.toString().replaceFirst('Exception: ', '');
@@ -120,9 +121,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _saveConnection() {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
     Navigator.of(context).pop(_buildRequest());
   }
 
@@ -150,17 +149,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Test the connection first. Saving broken settings is a very human hobby, but we can avoid it.',
+                  'Select the engine, then enter the connection details below.',
                   style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
                 ),
                 const SizedBox(height: 16),
                 GridView.count(
-                  crossAxisCount: 1,
+                  crossAxisCount: 3,
                   shrinkWrap: true,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                   physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 2.45,
+                  childAspectRatio: 1,
                   children: DatabaseProvider.values
                       .map(
                         (provider) => ProviderSelectorCard(
@@ -180,7 +179,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         _buildTextField(
                           controller: _nameController,
                           label: 'Connection name',
-                          hint: 'Production reporting / Local Oracle XE / etc.',
+                          hint: 'Production / Local Oracle XE / etc.',
                           validator: (value) => value == null || value.trim().isEmpty
                               ? 'Enter a name for this connection'
                               : null,
@@ -255,7 +254,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                             hint: 'XE',
                             validator: (value) {
                               final sidValue = _sidController.text.trim();
-                              if ((value == null || value.trim().isEmpty) && sidValue.isEmpty) {
+                              if ((value == null || value.trim().isEmpty) &&
+                                  sidValue.isEmpty) {
                                 return 'Enter a service name or SID';
                               }
                               return null;
@@ -273,14 +273,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Encrypt connection'),
-                            subtitle: const Text('Recommended when the server supports TLS'),
+                            subtitle: const Text(
+                              'Recommended when the server supports TLS',
+                            ),
                             value: _encrypt,
                             onChanged: (value) => setState(() => _encrypt = value),
                           ),
                           SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Trust server certificate'),
-                            subtitle: const Text('Useful for local dev and self-signed certificates'),
+                            subtitle: const Text(
+                              'Useful for local dev and self-signed certificates',
+                            ),
                             value: _trustServerCertificate,
                             onChanged: (value) => setState(
                               () => _trustServerCertificate = value,

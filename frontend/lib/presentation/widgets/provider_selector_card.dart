@@ -16,57 +16,52 @@ class ProviderSelectorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF132238) : theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
+          color: selected ? const Color(0xFF132238) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected
                 ? const Color(0xFF1EA7FF)
-                : theme.colorScheme.outlineVariant,
-            width: selected ? 1.5 : 1,
+                : Colors.grey.shade300,
+            width: selected ? 2 : 1,
           ),
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF1EA7FF).withOpacity(0.16),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
+                    color: const Color(0xFF1EA7FF).withOpacity(0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
                 ]
               : null,
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
               provider.asset,
-              width: 32,
-              height: 32,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              provider.label,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : null,
+              width: 36,
+              height: 36,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.storage_rounded,
+                size: 32,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              provider.helperText,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                height: 1.35,
-                color: selected ? Colors.white70 : theme.hintColor,
+              provider.label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: selected ? Colors.white : Colors.black87,
               ),
             ),
           ],

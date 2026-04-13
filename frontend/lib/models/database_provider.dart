@@ -38,41 +38,14 @@ extension DatabaseProviderX on DatabaseProvider {
     }
   }
 
-  String get helperText {
-    switch (this) {
-      case DatabaseProvider.postgresql:
-        return 'Fast, reliable and ideal for modern apps.';
-      case DatabaseProvider.sqlServer:
-        return 'Microsoft SQL Server for local, staging or enterprise environments.';
-      case DatabaseProvider.oracle:
-        return 'Oracle Database with service name or SID support.';
-    }
-  }
-
   String get asset {
     switch (this) {
       case DatabaseProvider.postgresql:
-        return 'assets/providers/postgresql.png';
+        return 'assets/providers/postgre.png';
       case DatabaseProvider.sqlServer:
-        return 'assets/providers/sqlserver.png';
+        return 'assets/providers/sql_server.png';
       case DatabaseProvider.oracle:
         return 'assets/providers/oracle.png';
-    }
-  }
-
-  static DatabaseProvider fromApiValue(String value) {
-    switch (value.toLowerCase()) {
-      case 'postgres':
-      case 'postgresql':
-        return DatabaseProvider.postgresql;
-      case 'sqlserver':
-      case 'sql_server':
-      case 'mssql':
-        return DatabaseProvider.sqlServer;
-      case 'oracle':
-        return DatabaseProvider.oracle;
-      default:
-        throw ArgumentError('Unsupported provider: $value');
     }
   }
 }
