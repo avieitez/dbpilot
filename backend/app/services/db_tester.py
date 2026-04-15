@@ -72,4 +72,4 @@ class DbTesterService:
         return {
             "success": True,
             "message": f"SQL Server connector reached successfully ({encryption})",
-        }\n
+        }
