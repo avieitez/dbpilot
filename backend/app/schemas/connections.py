@@ -4,7 +4,7 @@ class ConnectionTestRequest(BaseModel):
     name: str
     provider: str
     host: str
-    port: str
+    port: int
     username: str
     password: str
     database: str | None = None
