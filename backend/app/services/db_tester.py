@@ -1,5 +1,9 @@
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
 
+class ConnectionTestError(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        
 class DbTesterService:
 
     def test_connection(self, payload: ConnectionTestRequest) -> ConnectionTestResponse:
