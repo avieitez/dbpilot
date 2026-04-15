@@ -16,8 +16,8 @@ class ConnectionTestResult {
   factory ConnectionTestResult.fromJson(Map<String, dynamic> json) {
     return ConnectionTestResult(
       success: json['success'] == true,
-      message: json['message'] ?? 'No message',
-      durationMs: json['duration_ms'],
+      message: (json['message'] ?? json['detail'] ?? 'No message').toString(),
+      durationMs: json['durationMs'] ?? json['duration_ms'],
     );
   }
 }
@@ -35,12 +35,16 @@ class ConnectionApiService {
       body: jsonEncode(request.toJson()),
     );
 
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
+
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
       return ConnectionTestResult.fromJson(data);
     }
 
-    throw Exception('Error ${response.statusCode}: ${response.body}');
+    final message = data['detail'] ?? data['message'] ?? response.body;
+    throw Exception('Error ${response.statusCode}: $message');
   }
 
   void dispose() {

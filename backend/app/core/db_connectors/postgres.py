@@ -1,6 +1,9 @@
 import psycopg2
 
+
 def test_postgres_connection(payload) -> dict:
+    conn = None
+    cur = None
     try:
         conn = psycopg2.connect(
             host=payload.host,
@@ -16,12 +19,9 @@ def test_postgres_connection(payload) -> dict:
         cur.execute("SELECT 1;")
         cur.fetchone()
 
-        cur.close()
-        conn.close()
-
         return {
             "success": True,
-            "message": "Connected to PostgreSQL successfully",
+            "message": "PostgreSQL connection successful",
             "provider": "postgresql",
         }
 
@@ -31,3 +31,8 @@ def test_postgres_connection(payload) -> dict:
             "message": str(e),
             "provider": "postgresql",
         }
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()

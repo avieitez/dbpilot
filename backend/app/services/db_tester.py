@@ -1,6 +1,7 @@
 import time
 
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
+from app.services.postgres import test_postgres_connection
 
 
 class ConnectionTestError(Exception):
@@ -55,10 +56,7 @@ class DbTesterService:
                 raise ConnectionTestError("Database is required")
 
     def _test_postgresql(self, payload: ConnectionTestRequest) -> dict:
-        return {
-            "success": True,
-            "message": "PostgreSQL connector reached successfully",
-        }
+        return test_postgres_connection(payload)
 
     def _test_oracle(self, payload: ConnectionTestRequest) -> dict:
         target = payload.serviceName.strip() if payload.serviceName else payload.sid.strip()
