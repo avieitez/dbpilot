@@ -36,10 +36,10 @@ class ConnectionRequest {
       'username': username,
       'password': password,
       'database': database,
-      'service_name': serviceName,
+      'serviceName': serviceName,
       'sid': sid,
       'encrypt': encrypt,
-      'trust_server_certificate': trustServerCertificate,
+      'trustServerCertificate': trustServerCertificate,
     };
   }
 

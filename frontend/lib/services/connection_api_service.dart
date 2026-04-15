@@ -17,7 +17,7 @@ class ConnectionTestResult {
     return ConnectionTestResult(
       success: json['success'] == true,
       message: json['message'] ?? 'No message',
-      durationMs: json['durationMs'],
+      durationMs: json['duration_ms'],
     );
   }
 }
