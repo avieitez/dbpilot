@@ -25,3 +25,7 @@ app.include_router(connections_router)
 @app.get("/")
 def root():
     return {"message": "DBPilot backend is running"}
+
+@app.get("/")
+def root():
+    return {"message": "DBPilot backend v2"}

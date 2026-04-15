@@ -22,3 +22,7 @@ def test_connection(payload: ConnectionTestRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.get("/test-connection")
+def test_connection_info():
+    return {"message": "GET test-connection v2 works"}
