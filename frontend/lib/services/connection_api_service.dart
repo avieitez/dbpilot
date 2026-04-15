@@ -1,37 +1,49 @@
-import 'dart:async';
-
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/connection_request.dart';
 
 class ConnectionTestResult {
-  const ConnectionTestResult({
+  final bool success;
+  final String message;
+  final int? durationMs;
+
+  ConnectionTestResult({
     required this.success,
     required this.message,
     this.durationMs,
   });
 
-  final bool success;
-  final String message;
-  final int? durationMs;
+  factory ConnectionTestResult.fromJson(Map<String, dynamic> json) {
+    return ConnectionTestResult(
+      success: json['success'] == true,
+      message: json['message'] ?? 'No message',
+      durationMs: json['durationMs'],
+    );
+  }
 }
 
 class ConnectionApiService {
+  final http.Client _client = http.Client();
+  static const String _baseUrl = 'https://dbpilot-5g16.onrender.com';
+
   Future<ConnectionTestResult> testConnection(ConnectionRequest request) async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    final uri = Uri.parse('$_baseUrl/api/v1/test-connection');
 
-    if (request.host.trim().isEmpty) {
-      throw Exception('Host is required');
-    }
-
-    if (request.username.trim().isEmpty) {
-      throw Exception('Username is required');
-    }
-
-    return ConnectionTestResult(
-      success: true,
-      message: 'Connection parameters look valid',
-      durationMs: 800,
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
     );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return ConnectionTestResult.fromJson(data);
+    }
+
+    throw Exception('Error ${response.statusCode}: ${response.body}');
   }
 
-  void dispose() {}
+  void dispose() {
+    _client.close();
+  }
 }
