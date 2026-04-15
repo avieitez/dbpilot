@@ -17,54 +17,56 @@ class ProviderSelectorCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(20),
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.all(12),
+      child: Container(
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF132238) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF1EA7FF)
-                : Colors.grey.shade300,
-            width: selected ? 2 : 1,
+            color: selected ? const Color(0xFF1EA7FF) : Colors.transparent,
+            width: 2,
           ),
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF1EA7FF).withOpacity(0.18),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    color: const Color(0xFF1EA7FF).withOpacity(0.25),
+                    blurRadius: 12,
+                    spreadRadius: 1,
                   ),
                 ]
               : null,
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              provider.asset,
-              width: 36,
-              height: 36,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.storage_rounded,
-                size: 32,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Center(
+                  child: Image.asset(
+                    provider.asset,
+                    width: 30,
+                    height: 30,
+                    fit: BoxFit.contain,
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              provider.label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-                color: selected ? Colors.white : Colors.black87,
+              const SizedBox(height: 4),
+              Text(
+                provider.label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : Colors.black87,
+                  height: 1.1,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

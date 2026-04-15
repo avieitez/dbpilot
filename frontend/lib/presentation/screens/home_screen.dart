@@ -1,11 +1,9 @@
-import 'package:dbpilot/models/database_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import '../../models/connection_profile.dart';
-import '../../models/connection_request.dart';
-import '../../services/mock_connections_service.dart';
-import '../widgets/connection_card.dart';
+import '../../models/database_provider.dart';
+import '../../services/saved_connection_storage_service.dart';
+import '../widgets/saved_connection_card.dart';
 import 'connection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,16 +14,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _service = MockConnectionsService();
-  late final List<ConnectionProfile> connections;
+  final _storageService = SavedConnectionStorageService();
+
   BannerAd? _bannerAd;
-  int _currentIndex = 0;
+  bool _loadingConnections = true;
+  int _selectedIndex = 0;
+  List<Map<String, dynamic>> _connections = [];
 
   @override
   void initState() {
     super.initState();
-    connections = _service.loadConnections();
+    _loadSavedConnections();
     _loadBanner();
+  }
+
+  Future<void> _loadSavedConnections() async {
+    final items = await _storageService.getSavedConnections();
+    if (!mounted) return;
+
+    setState(() {
+      _connections = items.reversed.toList();
+      _loadingConnections = false;
+    });
   }
 
   void _loadBanner() {
@@ -39,21 +49,57 @@ class _HomeScreenState extends State<HomeScreen> {
     )..load();
   }
 
-  Future<void> _openConnectionScreen() async {
-    final result = await Navigator.of(context).push<ConnectionRequest>(
-      MaterialPageRoute(builder: (_) => const ConnectionScreen()),
+  Future<void> _openConnectionScreen({Map<String, dynamic>? initialData}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConnectionScreen(initialData: initialData),
+      ),
     );
 
-    if (!mounted || result == null) return;
+    if (!mounted) return;
+    await _loadSavedConnections();
+  }
 
-    setState(() {
-      connections.insert(0, ConnectionProfile.fromRequest(result));
-    });
+  Future<void> _deleteConnection(Map<String, dynamic> connection) async {
+    final connectionId = _storageService.ensureConnectionId(connection);
+    await _storageService.deleteConnectionById(connectionId);
+    await _loadSavedConnections();
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${result.provider.label} connection "${result.name}" captured.',
+      const SnackBar(content: Text('Connection deleted.')),
+    );
+  }
+
+  String _providerLabel(String providerName) {
+    return DatabaseProviderX.fromString(providerName).label;
+  }
+
+  Widget _buildAdSection() {
+    if (_bannerAd != null) {
+      return SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: Center(
+          child: SizedBox(
+            width: _bannerAd!.size.width.toDouble(),
+            height: _bannerAd!.size.height.toDouble(),
+            child: AdWidget(ad: _bannerAd!),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 50,
+      decoration: BoxDecoration(
+        color: const Color(0xFF132238),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Center(
+        child: Text(
+          'Ad banner area',
+          style: TextStyle(color: Colors.white70),
         ),
       ),
     );
@@ -69,138 +115,117 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 16,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/icons/app_icon.png',
-              width: 24,
-              height: 24,
-              errorBuilder: (_, __, ___) => const Icon(
-                Icons.storage_rounded,
-                size: 24,
-                color: Color(0xFF1EA7FF),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text('DBPilot'),
-          ],
-        ),
+        title: const Text('Dashboard'),
+        centerTitle: false,
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Card(
-                color: const Color(0xFF132238),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              'Connect to your databases in seconds',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Choose SQL Server, Oracle or PostgreSQL, then connect or manage existing instances.',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      const Icon(
-                        Icons.storage_rounded,
-                        size: 48,
-                        color: Color(0xFF1EA7FF),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
               Row(
                 children: [
                   const Expanded(
                     child: Text(
-                      'Saved Connections',
+                      'My Connections',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
-                  FilledButton.icon(
-                    onPressed: _openConnectionScreen,
-                    icon: const Icon(Icons.add),
-                    label: const Text('New Connection'),
+                  IconButton(
+                    onPressed: () => _openConnectionScreen(),
+                    icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: ListView.separated(
-                  itemCount: connections.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) =>
-                      ConnectionCard(profile: connections[index]),
-                ),
+                child: _loadingConnections
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView(
+                        padding: EdgeInsets.zero,
+                        children: [
+                          ..._connections.map(
+                            (c) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(18),
+                                onTap: () => _openConnectionScreen(initialData: c),
+                                child: SavedConnectionCard(
+                                  provider: _providerLabel(c['provider'] ?? ''),
+                                  name: c['name'] ?? '',
+                                  isConnected: false,
+                                  onDelete: () => _deleteConnection(c),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Recent Queries',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Card(
+                            color: const Color(0xFF132238),
+                            child: ListTile(
+                              leading: const Icon(
+                                Icons.query_stats_rounded,
+                                color: Colors.white70,
+                              ),
+                              title: const Text('Top Customers Q1'),
+                              trailing: const Icon(Icons.chevron_right),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Card(
+                            color: const Color(0xFF132238),
+                            child: ListTile(
+                              leading: const Icon(
+                                Icons.query_stats_rounded,
+                                color: Colors.white70,
+                              ),
+                              title: const Text('Daily Sales Report'),
+                              trailing: const Icon(Icons.chevron_right),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
               ),
-              const SizedBox(height: 12),
-              if (_bannerAd != null)
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: Center(
-                    child: SizedBox(
-                      width: _bannerAd!.size.width.toDouble(),
-                      height: _bannerAd!.size.height.toDouble(),
-                      child: AdWidget(ad: _bannerAd!),
-                    ),
-                  ),
-                )
-              else
-                Card(
-                  color: const Color(0xFF132238),
-                  child: const SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: Center(
-                      child: Text('Ad banner area'),
-                    ),
-                  ),
-                ),
+              const SizedBox(height: 4),
+              _buildAdSection(),
             ],
           ),
         ),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
+        selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
+          setState(() => _selectedIndex = index);
         },
+        height: 72,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.storage_rounded),
+            selectedIcon: Icon(Icons.storage_rounded),
             label: 'Connections',
           ),
           NavigationDestination(
+            icon: Icon(Icons.menu_rounded),
+            selectedIcon: Icon(Icons.menu_rounded),
+            label: 'Queries',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.settings_rounded),
+            selectedIcon: Icon(Icons.settings_rounded),
             label: 'Settings',
           ),
         ],

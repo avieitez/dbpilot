@@ -1,3 +1,4 @@
+
 enum DatabaseProvider {
   postgresql,
   sqlServer,
@@ -47,5 +48,14 @@ extension DatabaseProviderX on DatabaseProvider {
       case DatabaseProvider.oracle:
         return 'assets/providers/oracle.png';
     }
+  }
+
+  static DatabaseProvider fromString(String value) {
+    return DatabaseProvider.values.firstWhere(
+      (e) =>
+          e.name.toLowerCase() == value.toLowerCase() ||
+          e.apiValue.toLowerCase() == value.toLowerCase(),
+      orElse: () => DatabaseProvider.postgresql,
+    );
   }
 }

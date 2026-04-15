@@ -3,10 +3,16 @@ import 'package:flutter/material.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/connection_api_service.dart';
+import '../../services/saved_connection_storage_service.dart';
 import '../widgets/provider_selector_card.dart';
 
 class ConnectionScreen extends StatefulWidget {
-  const ConnectionScreen({super.key});
+  const ConnectionScreen({
+    super.key,
+    this.initialData,
+  });
+
+  final Map<String, dynamic>? initialData;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -15,6 +21,7 @@ class ConnectionScreen extends StatefulWidget {
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _apiService = ConnectionApiService();
+  final _storageService = SavedConnectionStorageService();
 
   final _nameController = TextEditingController();
   final _hostController = TextEditingController(text: 'localhost');
@@ -25,39 +32,110 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _serviceNameController = TextEditingController(text: 'XE');
   final _sidController = TextEditingController();
 
+  final _nameFocus = FocusNode();
+  final _hostFocus = FocusNode();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _databaseFocus = FocusNode();
+  final _serviceNameFocus = FocusNode();
+  final _sidFocus = FocusNode();
+  final _portFocus = FocusNode();
+
   DatabaseProvider _selectedProvider = DatabaseProvider.postgresql;
+  DatabaseProvider? _originalProvider;
+  Map<String, dynamic>? _originalData;
+  String? _editingConnectionId;
+
   bool _loading = false;
   bool _obscurePassword = true;
   bool _encrypt = false;
   bool _trustServerCertificate = true;
+  bool _showAdvanced = false;
   String? _statusMessage;
   bool? _statusSuccess;
 
+  bool get _isEditing => widget.initialData != null;
+  bool get _isOracle => _selectedProvider == DatabaseProvider.oracle;
+
   @override
-  void dispose() {
-    _apiService.dispose();
-    _nameController.dispose();
-    _hostController.dispose();
-    _portController.dispose();
-    _databaseController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    _serviceNameController.dispose();
-    _sidController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  void _loadInitialData() {
+    final data = widget.initialData;
+    if (data == null) {
+      _applyProviderDefaults(_selectedProvider);
+      return;
+    }
+
+    _originalData = Map<String, dynamic>.from(data);
+    _editingConnectionId = data['id']?.toString();
+
+    final providerValue = data['provider']?.toString() ?? 'postgresql';
+    final provider = DatabaseProviderX.fromString(providerValue);
+
+    _originalProvider = provider;
+    _selectedProvider = provider;
+    _applyDataToControllers(data, provider);
+  }
+
+  void _applyProviderDefaults(DatabaseProvider provider) {
+    _portController.text = provider.defaultPort;
+    if (provider == DatabaseProvider.postgresql) {
+      _databaseController.text = 'postgres';
+      _serviceNameController.clear();
+      _sidController.clear();
+    } else if (provider == DatabaseProvider.sqlServer) {
+      _databaseController.text = 'master';
+      _serviceNameController.clear();
+      _sidController.clear();
+    } else {
+      _databaseController.clear();
+      _serviceNameController.text = 'XE';
+      _sidController.clear();
+    }
+  }
+
+  void _applyDataToControllers(Map<String, dynamic> data, DatabaseProvider provider) {
+    _nameController.text = data['name']?.toString() ?? '';
+    _hostController.text = data['host']?.toString() ?? 'localhost';
+    _portController.text = (data['port']?.toString().isNotEmpty ?? false)
+        ? data['port'].toString()
+        : provider.defaultPort;
+    _databaseController.text = data['database']?.toString() ?? '';
+    _usernameController.text = data['username']?.toString() ?? '';
+    _passwordController.clear();
+    _serviceNameController.text = (data['serviceName']?.toString().isNotEmpty ?? false)
+        ? data['serviceName'].toString()
+        : 'XE';
+    _sidController.text = data['sid']?.toString() ?? '';
+    _encrypt = data['encrypt'] == true;
+    _trustServerCertificate = data['trustServerCertificate'] != false;
+  }
+
+  void _resetFieldsForProvider(DatabaseProvider provider) {
+    if (_isEditing && _originalProvider == provider && _originalData != null) {
+      _applyDataToControllers(_originalData!, provider);
+      return;
+    }
+
+    _nameController.clear();
+    _hostController.text = 'localhost';
+    _usernameController.clear();
+    _passwordController.clear();
+    _encrypt = false;
+    _trustServerCertificate = true;
+    _applyProviderDefaults(provider);
   }
 
   void _onProviderSelected(DatabaseProvider provider) {
     setState(() {
       _selectedProvider = provider;
-      _portController.text = provider.defaultPort;
       _statusMessage = null;
       _statusSuccess = null;
-
-      if (provider == DatabaseProvider.oracle) {
-        _databaseController.clear();
-        _serviceNameController.text = 'XE';
-      }
+      _resetFieldsForProvider(provider);
     });
   }
 
@@ -70,15 +148,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       username: _usernameController.text.trim(),
       password: _passwordController.text,
       database: _databaseController.text.trim(),
-      serviceName: _selectedProvider == DatabaseProvider.oracle
+      serviceName: _isOracle
           ? _serviceNameController.text.trim().isEmpty
-                ? null
-                : _serviceNameController.text.trim()
+              ? null
+              : _serviceNameController.text.trim()
           : null,
-      sid: _selectedProvider == DatabaseProvider.oracle
+      sid: _isOracle
           ? _sidController.text.trim().isEmpty
-                ? null
-                : _sidController.text.trim()
+              ? null
+              : _sidController.text.trim()
           : null,
       encrypt: _selectedProvider == DatabaseProvider.sqlServer ? _encrypt : false,
       trustServerCertificate: _selectedProvider == DatabaseProvider.sqlServer
@@ -90,6 +168,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final request = _buildRequest();
+
     setState(() {
       _loading = true;
       _statusMessage = null;
@@ -97,7 +177,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
 
     try {
-      final result = await _apiService.testConnection(_buildRequest());
+      final result = await _apiService.testConnection(request);
       if (!mounted) return;
 
       setState(() {
@@ -108,7 +188,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       });
     } catch (error) {
       if (!mounted) return;
-
       setState(() {
         _statusSuccess = false;
         _statusMessage = error.toString().replaceFirst('Exception: ', '');
@@ -120,9 +199,156 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  void _saveConnection() {
+  Future<void> _saveOnly() async {
     if (!_formKey.currentState!.validate()) return;
-    Navigator.of(context).pop(_buildRequest());
+
+    final request = _buildRequest();
+    await _storageService.saveConnection(
+      request,
+      existingId: _editingConnectionId,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_isEditing ? 'Connection updated.' : 'Connection saved.')),
+    );
+    Navigator.of(context).pop(request);
+  }
+
+  TextInputAction _actionForField(String fieldKey) {
+    switch (fieldKey) {
+      case 'name':
+      case 'host':
+      case 'username':
+      case 'password':
+        return TextInputAction.next;
+      case 'database':
+      case 'sid':
+        return TextInputAction.done;
+      case 'serviceName':
+      case 'port':
+        return TextInputAction.next;
+      default:
+        return TextInputAction.next;
+    }
+  }
+
+  void _submitField(String fieldKey) {
+    switch (fieldKey) {
+      case 'name':
+        _hostFocus.requestFocus();
+        break;
+      case 'host':
+        _usernameFocus.requestFocus();
+        break;
+      case 'username':
+        _passwordFocus.requestFocus();
+        break;
+      case 'password':
+        FocusScope.of(context).unfocus();
+        break;
+      case 'port':
+        if (_isOracle) {
+          _serviceNameFocus.requestFocus();
+        } else {
+          _databaseFocus.requestFocus();
+        }
+        break;
+      case 'database':
+        FocusScope.of(context).unfocus();
+        break;
+      case 'serviceName':
+        _sidFocus.requestFocus();
+        break;
+      case 'sid':
+        FocusScope.of(context).unfocus();
+        break;
+      default:
+        FocusScope.of(context).unfocus();
+        break;
+    }
+  }
+
+  @override
+  void dispose() {
+    _apiService.dispose();
+    _nameController.dispose();
+    _hostController.dispose();
+    _portController.dispose();
+    _databaseController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _serviceNameController.dispose();
+    _sidController.dispose();
+    _nameFocus.dispose();
+    _hostFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _databaseFocus.dispose();
+    _serviceNameFocus.dispose();
+    _sidFocus.dispose();
+    _portFocus.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    String? hint,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      filled: true,
+      fillColor: const Color(0xFF203454),
+      suffixIcon: suffixIcon,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: Colors.white.withOpacity(0.05)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFF3EA5FF), width: 1.4),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required String fieldKey,
+    required String label,
+    String? hint,
+    bool obscureText = false,
+    Widget? suffixIcon,
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      focusNode: focusNode,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      textInputAction: _actionForField(fieldKey),
+      onFieldSubmitted: (_) => _submitField(fieldKey),
+      validator: validator,
+      decoration: _fieldDecoration(
+        label: label,
+        hint: hint,
+        suffixIcon: suffixIcon,
+      ),
+    );
+  }
+
+  String? _requiredValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required';
+    }
+    return null;
   }
 
   @override
@@ -131,168 +357,177 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Connection'),
+        title: Text(_isEditing ? 'Edit Connection' : 'New Connection'),
+        centerTitle: true,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Choose a provider',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                Row(
+                  children: DatabaseProvider.values.map((provider) {
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: provider == DatabaseProvider.oracle ? 0 : 10,
+                        ),
+                        child: SizedBox(
+                          height: 76,
+                          child: ProviderSelectorCard(
+                            provider: provider,
+                            selected: provider == _selectedProvider,
+                            onTap: () => _onProviderSelected(provider),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 18),
+                _buildTextField(
+                  controller: _nameController,
+                  focusNode: _nameFocus,
+                  fieldKey: 'name',
+                  label: 'Connection Name',
+                  hint: 'Enter Name',
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Enter a name for this connection'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _hostController,
+                  focusNode: _hostFocus,
+                  fieldKey: 'host',
+                  label: 'Host',
+                  hint: 'Hostname / IP',
+                  validator: _requiredValidator,
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _usernameController,
+                  focusNode: _usernameFocus,
+                  fieldKey: 'username',
+                  label: 'Username',
+                  hint: 'Enter Username',
+                  validator: _requiredValidator,
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _passwordController,
+                  focusNode: _passwordFocus,
+                  fieldKey: 'password',
+                  label: 'Password',
+                  hint: '••••••••',
+                  obscureText: _obscurePassword,
+                  validator: _requiredValidator,
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword,
+                    ),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_rounded
+                          : Icons.visibility_off_rounded,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Select the engine, then enter the connection details below.',
-                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
-                ),
-                const SizedBox(height: 16),
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 1,
-                  children: DatabaseProvider.values
-                      .map(
-                        (provider) => ProviderSelectorCard(
-                          provider: provider,
-                          selected: provider == _selectedProvider,
-                          onTap: () => _onProviderSelected(provider),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 20),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _buildTextField(
-                          controller: _nameController,
-                          label: 'Connection name',
-                          hint: 'Production / Local Oracle XE / etc.',
-                          validator: (value) => value == null || value.trim().isEmpty
-                              ? 'Enter a name for this connection'
-                              : null,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildTextField(
-                          controller: _hostController,
-                          label: 'Host',
-                          hint: 'localhost or IP address',
-                          validator: _requiredValidator,
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildTextField(
-                                controller: _portController,
-                                label: 'Port',
-                                keyboardType: TextInputType.number,
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  if (int.tryParse(value.trim()) == null) {
-                                    return 'Numbers only';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildTextField(
-                                controller: _usernameController,
-                                label: 'Username',
-                                validator: _requiredValidator,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _buildTextField(
-                          controller: _passwordController,
-                          label: 'Password',
-                          obscureText: _obscurePassword,
-                          validator: _requiredValidator,
-                          suffixIcon: IconButton(
-                            onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_rounded
-                                  : Icons.visibility_off_rounded,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_selectedProvider != DatabaseProvider.oracle)
-                          _buildTextField(
-                            controller: _databaseController,
-                            label: 'Database',
-                            hint: _selectedProvider == DatabaseProvider.postgresql
-                                ? 'postgres'
-                                : 'master',
-                            validator: _requiredValidator,
-                          ),
-                        if (_selectedProvider == DatabaseProvider.oracle) ...[
-                          _buildTextField(
-                            controller: _serviceNameController,
-                            label: 'Service name',
-                            hint: 'XE',
-                            validator: (value) {
-                              final sidValue = _sidController.text.trim();
-                              if ((value == null || value.trim().isEmpty) &&
-                                  sidValue.isEmpty) {
-                                return 'Enter a service name or SID';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          _buildTextField(
-                            controller: _sidController,
-                            label: 'SID (optional)',
-                            hint: 'xe',
-                          ),
-                        ],
-                        if (_selectedProvider == DatabaseProvider.sqlServer) ...[
-                          const SizedBox(height: 12),
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Encrypt connection'),
-                            subtitle: const Text(
-                              'Recommended when the server supports TLS',
-                            ),
-                            value: _encrypt,
-                            onChanged: (value) => setState(() => _encrypt = value),
-                          ),
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Trust server certificate'),
-                            subtitle: const Text(
-                              'Useful for local dev and self-signed certificates',
-                            ),
-                            value: _trustServerCertificate,
-                            onChanged: (value) => setState(
-                              () => _trustServerCertificate = value,
-                            ),
-                          ),
-                        ],
-                      ],
+                const SizedBox(height: 12),
+                Theme(
+                  data: theme.copyWith(
+                    dividerColor: Colors.transparent,
+                  ),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Advanced settings',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
+                    initiallyExpanded: _showAdvanced,
+                    onExpansionChanged: (value) {
+                      setState(() => _showAdvanced = value);
+                    },
+                    children: [
+                      const SizedBox(height: 4),
+                      _buildTextField(
+                        controller: _portController,
+                        focusNode: _portFocus,
+                        fieldKey: 'port',
+                        label: 'Port',
+                        hint: _selectedProvider.defaultPort,
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Required';
+                          }
+                          if (int.tryParse(value.trim()) == null) {
+                            return 'Numbers only';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      if (!_isOracle)
+                        _buildTextField(
+                          controller: _databaseController,
+                          focusNode: _databaseFocus,
+                          fieldKey: 'database',
+                          label: 'Database',
+                          hint: _selectedProvider == DatabaseProvider.postgresql
+                              ? 'postgres'
+                              : 'master',
+                          validator: _requiredValidator,
+                        ),
+                      if (_isOracle) ...[
+                        _buildTextField(
+                          controller: _serviceNameController,
+                          focusNode: _serviceNameFocus,
+                          fieldKey: 'serviceName',
+                          label: 'Service Name',
+                          hint: 'XE',
+                          validator: (value) {
+                            final sidValue = _sidController.text.trim();
+                            if ((value == null || value.trim().isEmpty) &&
+                                sidValue.isEmpty) {
+                              return 'Enter a service name or SID';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        _buildTextField(
+                          controller: _sidController,
+                          focusNode: _sidFocus,
+                          fieldKey: 'sid',
+                          label: 'SID',
+                          hint: 'xe',
+                        ),
+                      ],
+                      if (_selectedProvider == DatabaseProvider.sqlServer) ...[
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Encrypt connection'),
+                          value: _encrypt,
+                          onChanged: (value) => setState(() => _encrypt = value),
+                        ),
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Trust server certificate'),
+                          value: _trustServerCertificate,
+                          onChanged: (value) =>
+                              setState(() => _trustServerCertificate = value),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -329,31 +564,58 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       ],
                     ),
                   ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _loading ? null : _testConnection,
-                        icon: _loading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.wifi_tethering_rounded),
-                        label: Text(_loading ? 'Testing...' : 'Test connection'),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _testConnection,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2D8CFF),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: _loading ? null : _saveConnection,
-                        icon: const Icon(Icons.save_rounded),
-                        label: const Text('Save'),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Test Connection',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _saveOnly,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6FB628),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                  ],
+                    child: Text(
+                      _isEditing ? 'Update' : 'Save',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -361,34 +623,5 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
       ),
     );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    String? hint,
-    bool obscureText = false,
-    Widget? suffixIcon,
-    TextInputType? keyboardType,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        suffixIcon: suffixIcon,
-      ),
-    );
-  }
-
-  String? _requiredValidator(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'This field is required';
-    }
-    return null;
   }
 }
