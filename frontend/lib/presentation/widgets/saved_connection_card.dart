@@ -18,7 +18,7 @@ class SavedConnectionCard extends StatelessWidget {
     switch (provider.toLowerCase().trim()) {
       case 'postgresql':
       case 'postgres':
-        return 'assets/providers/postgres.png';
+        return 'assets/providers/postgre.png';
       case 'oracle':
         return 'assets/providers/oracle.png';
       case 'sql server':

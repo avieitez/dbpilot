@@ -179,7 +179,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Future<void> _connect() async {
+  Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
@@ -195,46 +195,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
       if (!mounted) return;
 
-      if (!result.success) {
-        setState(() {
-          _statusSuccess = false;
-          _statusMessage = result.durationMs == null
-              ? result.message
-              : '${result.message} (${result.durationMs} ms)';
-        });
-        return;
-      }
-
-      final connectionId = _editingConnectionId ??
-          DateTime.now().millisecondsSinceEpoch.toString();
-
-      await _storageService.saveConnection(
-        request,
-        existingId: connectionId,
-      );
-
-      await _storageService.setActiveConnectionId(connectionId);
-
-      if (!mounted) return;
-
       setState(() {
-        _statusSuccess = true;
+        _statusSuccess = result.success;
         _statusMessage = result.durationMs == null
             ? result.message
             : '${result.message} (${result.durationMs} ms)';
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _isEditing
-                ? 'Connection updated and activated.'
-                : 'Connection saved and activated.',
-          ),
-        ),
-      );
-
-      Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -246,6 +212,31 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _saveConnection() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final request = _buildRequest();
+    final connectionId =
+        _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+
+    await _storageService.saveConnection(
+      request,
+      existingId: connectionId,
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _isEditing ? 'Connection updated.' : 'Connection saved.',
+        ),
+      ),
+    );
+
+    Navigator.of(context).pop(true);
   }
 
   TextInputAction _actionForField(String fieldKey) {
@@ -437,17 +428,24 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     children: [
                       Row(
                         children: DatabaseProvider.values.map((provider) {
+                          final isLocked = _isEditing && provider != _selectedProvider;
                           return Expanded(
                             child: Padding(
                               padding: EdgeInsets.only(
                                 right: provider == DatabaseProvider.oracle ? 0 : 10,
                               ),
-                              child: SizedBox(
-                                height: 76,
-                                child: ProviderSelectorCard(
-                                  provider: provider,
-                                  selected: provider == _selectedProvider,
-                                  onTap: () => _onProviderSelected(provider),
+                              child: Opacity(
+                                opacity: isLocked ? 0.45 : 1.0,
+                                child: AbsorbPointer(
+                                  absorbing: isLocked,
+                                  child: SizedBox(
+                                    height: 76,
+                                    child: ProviderSelectorCard(
+                                      provider: provider,
+                                      selected: provider == _selectedProvider,
+                                      onTap: () => _onProviderSelected(provider),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -551,7 +549,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 hint: _selectedProvider == DatabaseProvider.postgresql
                                     ? 'postgres'
                                     : 'master',
-                                validator: _requiredValidator,
                               ),
                             if (_isOracle) ...[
                               _buildTextField(
@@ -632,35 +629,67 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           ),
                         ),
                       const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton(
-                          onPressed: _loading ? null : _connect,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2D8CFF),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 52,
+                              child: ElevatedButton.icon(
+                                onPressed: _loading ? null : _testConnection,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2D8CFF),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                icon: _loading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.link_rounded),
+                                label: const Text(
+                                  'Test',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 52,
+                              child: ElevatedButton.icon(
+                                onPressed: _loading ? null : _saveConnection,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1D4D3C),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                )
-                              : Text(
-                                  _isEditing ? 'Update & Connect' : 'Connect',
+                                ),
+                                icon: Icon(
+                                  _isEditing ? Icons.save_as_rounded : Icons.save_rounded,
+                                ),
+                                label: Text(
+                                  _isEditing ? 'Update' : 'Save',
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                        ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

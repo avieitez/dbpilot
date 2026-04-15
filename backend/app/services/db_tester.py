@@ -1,7 +1,7 @@
 import time
 
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
-from app.services.postgres import test_postgres_connection
+from app.core.db_connectors.postgres import test_postgres_connection
 
 
 class ConnectionTestError(Exception):

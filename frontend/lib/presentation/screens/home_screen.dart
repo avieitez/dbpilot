@@ -15,7 +15,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _storageService = SavedConnectionStorageService();
   final _apiService = ConnectionApiService();
 
@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSavedConnections();
     _loadBanner();
   }
@@ -261,7 +262,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _storageService.setActiveConnectionId('');
+      if (mounted) {
+        setState(() {
+          _activeConnectionId = null;
+          _activeConnection = null;
+        });
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      _loadSavedConnections();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _storageService.setActiveConnectionId('');
     _bannerAd?.dispose();
     _apiService.dispose();
     super.dispose();
@@ -314,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.only(bottom: 12),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(18),
-                              onTap: _connecting ? null : () => _activateSavedConnection(c),
+                              onTap: null,
                               child: SavedConnectionCard(
                                 provider: _providerLabel(c['provider'] ?? ''),
                                 name: c['name'] ?? '',
@@ -358,15 +378,33 @@ class _HomeScreenState extends State<HomeScreen> {
                                       itemBuilder: (context) => const [
                                         PopupMenuItem(
                                           value: 'connect',
-                                          child: Text('Connect'),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.link_rounded, size: 20),
+                                              SizedBox(width: 10),
+                                              Text('Connect'),
+                                            ],
+                                          ),
                                         ),
                                         PopupMenuItem(
                                           value: 'edit',
-                                          child: Text('Edit'),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.edit_rounded, size: 20),
+                                              SizedBox(width: 10),
+                                              Text('Edit'),
+                                            ],
+                                          ),
                                         ),
                                         PopupMenuItem(
                                           value: 'delete',
-                                          child: Text('Delete'),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.delete_outline_rounded, size: 20),
+                                              SizedBox(width: 10),
+                                              Text('Delete'),
+                                            ],
+                                          ),
                                         ),
                                       ],
                                       icon: const Icon(Icons.more_vert_rounded),
@@ -376,28 +414,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           );
-                        }),                          const SizedBox(height: 20),
-                          const Text(
-                            'Recent Queries',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Card(
-                            color: const Color(0xFF132238),
-                            child: ListTile(
-                              leading: const Icon(
-                                Icons.query_stats_rounded,
-                                color: Colors.white70,
-                              ),
-                              title: const Text('Top Customers Q1'),
-                              trailing: const Icon(Icons.chevron_right),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Card(
+                        }),
+Card(
                             color: const Color(0xFF132238),
                             child: ListTile(
                               leading: const Icon(
