@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
@@ -41,6 +42,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _sidFocus = FocusNode();
   final _portFocus = FocusNode();
 
+  BannerAd? _bannerAd;
   DatabaseProvider _selectedProvider = DatabaseProvider.postgresql;
   DatabaseProvider? _originalProvider;
   Map<String, dynamic>? _originalData;
@@ -61,6 +63,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void initState() {
     super.initState();
     _loadInitialData();
+    _loadBanner();
+  }
+
+  void _loadBanner() {
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111',
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdFailedToLoad: (ad, error) => ad.dispose(),
+      ),
+    )..load();
   }
 
   void _loadInitialData() {
@@ -165,7 +179,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Future<void> _testConnection() async {
+  Future<void> _connect() async {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
@@ -178,14 +192,49 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     try {
       final result = await _apiService.testConnection(request);
+
+      if (!mounted) return;
+
+      if (!result.success) {
+        setState(() {
+          _statusSuccess = false;
+          _statusMessage = result.durationMs == null
+              ? result.message
+              : '${result.message} (${result.durationMs} ms)';
+        });
+        return;
+      }
+
+      final connectionId = _editingConnectionId ??
+          DateTime.now().millisecondsSinceEpoch.toString();
+
+      await _storageService.saveConnection(
+        request,
+        existingId: connectionId,
+      );
+
+      await _storageService.setActiveConnectionId(connectionId);
+
       if (!mounted) return;
 
       setState(() {
-        _statusSuccess = result.success;
+        _statusSuccess = true;
         _statusMessage = result.durationMs == null
             ? result.message
             : '${result.message} (${result.durationMs} ms)';
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isEditing
+                ? 'Connection updated and activated.'
+                : 'Connection saved and activated.',
+          ),
+        ),
+      );
+
+      Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -197,22 +246,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         setState(() => _loading = false);
       }
     }
-  }
-
-  Future<void> _saveOnly() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final request = _buildRequest();
-    await _storageService.saveConnection(
-      request,
-      existingId: _editingConnectionId,
-    );
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_isEditing ? 'Connection updated.' : 'Connection saved.')),
-    );
-    Navigator.of(context).pop(request);
   }
 
   TextInputAction _actionForField(String fieldKey) {
@@ -269,28 +302,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _apiService.dispose();
-    _nameController.dispose();
-    _hostController.dispose();
-    _portController.dispose();
-    _databaseController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    _serviceNameController.dispose();
-    _sidController.dispose();
-    _nameFocus.dispose();
-    _hostFocus.dispose();
-    _usernameFocus.dispose();
-    _passwordFocus.dispose();
-    _databaseFocus.dispose();
-    _serviceNameFocus.dispose();
-    _sidFocus.dispose();
-    _portFocus.dispose();
-    super.dispose();
-  }
-
   InputDecoration _fieldDecoration({
     required String label,
     String? hint,
@@ -344,11 +355,64 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
+  Widget _buildAdSection() {
+    if (_bannerAd != null) {
+      return SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: Center(
+          child: SizedBox(
+            width: _bannerAd!.size.width.toDouble(),
+            height: _bannerAd!.size.height.toDouble(),
+            child: AdWidget(ad: _bannerAd!),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 50,
+      decoration: BoxDecoration(
+        color: const Color(0xFF132238),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Center(
+        child: Text(
+          'Ad banner area',
+          style: TextStyle(color: Colors.white70),
+        ),
+      ),
+    );
+  }
+
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'This field is required';
     }
     return null;
+  }
+
+  @override
+  void dispose() {
+    _apiService.dispose();
+    _bannerAd?.dispose();
+    _nameController.dispose();
+    _hostController.dispose();
+    _portController.dispose();
+    _databaseController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _serviceNameController.dispose();
+    _sidController.dispose();
+    _nameFocus.dispose();
+    _hostFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _databaseFocus.dispose();
+    _serviceNameFocus.dispose();
+    _sidFocus.dispose();
+    _portFocus.dispose();
+    super.dispose();
   }
 
   @override
@@ -361,265 +425,253 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: DatabaseProvider.values.map((provider) {
-                    return Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          right: provider == DatabaseProvider.oracle ? 0 : 10,
-                        ),
-                        child: SizedBox(
-                          height: 76,
-                          child: ProviderSelectorCard(
-                            provider: provider,
-                            selected: provider == _selectedProvider,
-                            onTap: () => _onProviderSelected(provider),
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: DatabaseProvider.values.map((provider) {
+                          return Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                right: provider == DatabaseProvider.oracle ? 0 : 10,
+                              ),
+                              child: SizedBox(
+                                height: 76,
+                                child: ProviderSelectorCard(
+                                  provider: provider,
+                                  selected: provider == _selectedProvider,
+                                  onTap: () => _onProviderSelected(provider),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 18),
+                      _buildTextField(
+                        controller: _nameController,
+                        focusNode: _nameFocus,
+                        fieldKey: 'name',
+                        label: 'Connection Name',
+                        hint: 'Enter Name',
+                        validator: (value) => value == null || value.trim().isEmpty
+                            ? 'Enter a name for this connection'
+                            : null,
+                      ),
+                      const SizedBox(height: 14),
+                      _buildTextField(
+                        controller: _hostController,
+                        focusNode: _hostFocus,
+                        fieldKey: 'host',
+                        label: 'Host',
+                        hint: 'Hostname / IP',
+                        validator: _requiredValidator,
+                      ),
+                      const SizedBox(height: 14),
+                      _buildTextField(
+                        controller: _usernameController,
+                        focusNode: _usernameFocus,
+                        fieldKey: 'username',
+                        label: 'Username',
+                        hint: 'Enter Username',
+                        validator: _requiredValidator,
+                      ),
+                      const SizedBox(height: 14),
+                      _buildTextField(
+                        controller: _passwordController,
+                        focusNode: _passwordFocus,
+                        fieldKey: 'password',
+                        label: 'Password',
+                        hint: '••••••••',
+                        obscureText: _obscurePassword,
+                        validator: _requiredValidator,
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_rounded
+                                : Icons.visibility_off_rounded,
                           ),
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 18),
-                _buildTextField(
-                  controller: _nameController,
-                  focusNode: _nameFocus,
-                  fieldKey: 'name',
-                  label: 'Connection Name',
-                  hint: 'Enter Name',
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Enter a name for this connection'
-                      : null,
-                ),
-                const SizedBox(height: 14),
-                _buildTextField(
-                  controller: _hostController,
-                  focusNode: _hostFocus,
-                  fieldKey: 'host',
-                  label: 'Host',
-                  hint: 'Hostname / IP',
-                  validator: _requiredValidator,
-                ),
-                const SizedBox(height: 14),
-                _buildTextField(
-                  controller: _usernameController,
-                  focusNode: _usernameFocus,
-                  fieldKey: 'username',
-                  label: 'Username',
-                  hint: 'Enter Username',
-                  validator: _requiredValidator,
-                ),
-                const SizedBox(height: 14),
-                _buildTextField(
-                  controller: _passwordController,
-                  focusNode: _passwordFocus,
-                  fieldKey: 'password',
-                  label: 'Password',
-                  hint: '••••••••',
-                  obscureText: _obscurePassword,
-                  validator: _requiredValidator,
-                  suffixIcon: IconButton(
-                    onPressed: () => setState(
-                      () => _obscurePassword = !_obscurePassword,
-                    ),
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_rounded
-                          : Icons.visibility_off_rounded,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Theme(
-                  data: theme.copyWith(
-                    dividerColor: Colors.transparent,
-                  ),
-                  child: ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Advanced settings',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    initiallyExpanded: _showAdvanced,
-                    onExpansionChanged: (value) {
-                      setState(() => _showAdvanced = value);
-                    },
-                    children: [
-                      const SizedBox(height: 4),
-                      _buildTextField(
-                        controller: _portController,
-                        focusNode: _portFocus,
-                        fieldKey: 'port',
-                        label: 'Port',
-                        hint: _selectedProvider.defaultPort,
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Required';
-                          }
-                          if (int.tryParse(value.trim()) == null) {
-                            return 'Numbers only';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 14),
-                      if (!_isOracle)
-                        _buildTextField(
-                          controller: _databaseController,
-                          focusNode: _databaseFocus,
-                          fieldKey: 'database',
-                          label: 'Database',
-                          hint: _selectedProvider == DatabaseProvider.postgresql
-                              ? 'postgres'
-                              : 'master',
-                          validator: _requiredValidator,
+                      const SizedBox(height: 12),
+                      Theme(
+                        data: theme.copyWith(
+                          dividerColor: Colors.transparent,
                         ),
-                      if (_isOracle) ...[
-                        _buildTextField(
-                          controller: _serviceNameController,
-                          focusNode: _serviceNameFocus,
-                          fieldKey: 'serviceName',
-                          label: 'Service Name',
-                          hint: 'XE',
-                          validator: (value) {
-                            final sidValue = _sidController.text.trim();
-                            if ((value == null || value.trim().isEmpty) &&
-                                sidValue.isEmpty) {
-                              return 'Enter a service name or SID';
-                            }
-                            return null;
+                        child: ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          childrenPadding: EdgeInsets.zero,
+                          title: const Text(
+                            'Advanced settings',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          initiallyExpanded: _showAdvanced,
+                          onExpansionChanged: (value) {
+                            setState(() => _showAdvanced = value);
                           },
+                          children: [
+                            const SizedBox(height: 4),
+                            _buildTextField(
+                              controller: _portController,
+                              focusNode: _portFocus,
+                              fieldKey: 'port',
+                              label: 'Port',
+                              hint: _selectedProvider.defaultPort,
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Required';
+                                }
+                                if (int.tryParse(value.trim()) == null) {
+                                  return 'Numbers only';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 14),
+                            if (!_isOracle)
+                              _buildTextField(
+                                controller: _databaseController,
+                                focusNode: _databaseFocus,
+                                fieldKey: 'database',
+                                label: 'Database',
+                                hint: _selectedProvider == DatabaseProvider.postgresql
+                                    ? 'postgres'
+                                    : 'master',
+                                validator: _requiredValidator,
+                              ),
+                            if (_isOracle) ...[
+                              _buildTextField(
+                                controller: _serviceNameController,
+                                focusNode: _serviceNameFocus,
+                                fieldKey: 'serviceName',
+                                label: 'Service Name',
+                                hint: 'XE',
+                                validator: (value) {
+                                  final sidValue = _sidController.text.trim();
+                                  if ((value == null || value.trim().isEmpty) &&
+                                      sidValue.isEmpty) {
+                                    return 'Enter a service name or SID';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              _buildTextField(
+                                controller: _sidController,
+                                focusNode: _sidFocus,
+                                fieldKey: 'sid',
+                                label: 'SID',
+                                hint: 'xe',
+                              ),
+                            ],
+                            if (_selectedProvider == DatabaseProvider.sqlServer) ...[
+                              const SizedBox(height: 8),
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Encrypt connection'),
+                                value: _encrypt,
+                                onChanged: (value) => setState(() => _encrypt = value),
+                              ),
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Trust server certificate'),
+                                value: _trustServerCertificate,
+                                onChanged: (value) =>
+                                    setState(() => _trustServerCertificate = value),
+                              ),
+                            ],
+                          ],
                         ),
-                        const SizedBox(height: 14),
-                        _buildTextField(
-                          controller: _sidController,
-                          focusNode: _sidFocus,
-                          fieldKey: 'sid',
-                          label: 'SID',
-                          hint: 'xe',
+                      ),
+                      const SizedBox(height: 16),
+                      if (_statusMessage != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: (_statusSuccess ?? false)
+                                ? Colors.green.withOpacity(0.12)
+                                : Colors.red.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: (_statusSuccess ?? false)
+                                  ? Colors.green.withOpacity(0.35)
+                                  : Colors.red.withOpacity(0.35),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                (_statusSuccess ?? false)
+                                    ? Icons.check_circle_rounded
+                                    : Icons.error_outline_rounded,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _statusMessage!,
+                                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
-                      if (_selectedProvider == DatabaseProvider.sqlServer) ...[
-                        const SizedBox(height: 8),
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Encrypt connection'),
-                          value: _encrypt,
-                          onChanged: (value) => setState(() => _encrypt = value),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _loading ? null : _connect,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2D8CFF),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _isEditing ? 'Update & Connect' : 'Connect',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                         ),
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Trust server certificate'),
-                          value: _trustServerCertificate,
-                          onChanged: (value) =>
-                              setState(() => _trustServerCertificate = value),
-                        ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                if (_statusMessage != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: (_statusSuccess ?? false)
-                          ? Colors.green.withOpacity(0.12)
-                          : Colors.red.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: (_statusSuccess ?? false)
-                            ? Colors.green.withOpacity(0.35)
-                            : Colors.red.withOpacity(0.35),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          (_statusSuccess ?? false)
-                              ? Icons.check_circle_rounded
-                              : Icons.error_outline_rounded,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _statusMessage!,
-                            style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _testConnection,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2D8CFF),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text(
-                            'Test Connection',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _saveOnly,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6FB628),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: Text(
-                      _isEditing ? 'Update' : 'Save',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _buildAdSection(),
+            ),
+          ],
         ),
       ),
     );

@@ -1,11 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .schemas import ConnectionTestRequest, ConnectionTestResponse
-from .services.db_tester import ConnectionTestError, DbTesterService
+from app.routers.connections import router as connections_router
 
 app = FastAPI(title="DBPilot API", version="0.1.0")
-service = DbTesterService()
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,17 +13,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+app.include_router(connections_router)
 
 
-@app.post("/api/v1/test-connection", response_model=ConnectionTestResponse)
-def test_connection(payload: ConnectionTestRequest) -> ConnectionTestResponse:
-    try:
-        return service.test_connection(payload)
-    except ConnectionTestError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"message": "DBPilot backend is running"}

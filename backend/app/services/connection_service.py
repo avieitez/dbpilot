@@ -5,6 +5,7 @@ from app.core.security import CredentialCipher
 from app.models.connection import ConnectionRecord
 from app.schemas.connections import CreateConnectionRequest, CreateConnectionResponse
 
+
 class ConnectionService:
     def __init__(self, cipher: CredentialCipher) -> None:
         self._cipher = cipher
@@ -16,7 +17,7 @@ class ConnectionService:
         record = ConnectionRecord(
             id=str(uuid4()),
             name=payload.name,
-            provider=payload.provider,
+            provider=payload.provider.value,
             host=payload.host,
             port=payload.port,
             database=payload.database,
@@ -34,5 +35,5 @@ class ConnectionService:
             port=record.port,
             database=record.database,
             username=record.username,
-            encrypted_password_preview=f'{encrypted[:12]}...',
+            encrypted_password_preview=f"{encrypted[:12]}...",
         )

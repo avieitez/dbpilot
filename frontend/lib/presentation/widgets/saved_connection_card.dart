@@ -5,79 +5,89 @@ class SavedConnectionCard extends StatelessWidget {
     super.key,
     required this.provider,
     required this.name,
-    required this.onDelete,
-    this.isConnected = false,
+    required this.isConnected,
+    this.trailing,
   });
 
   final String provider;
   final String name;
-  final VoidCallback onDelete;
   final bool isConnected;
-
-  String _providerAsset() {
-    switch (provider) {
-      case 'SQL Server':
-        return 'assets/providers/sql_server.png';
-      case 'Oracle':
-        return 'assets/providers/oracle.png';
-      case 'PostgreSQL':
-        return 'assets/providers/postgre.png';
-      default:
-        return 'assets/providers/database.png';
-    }
-  }
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: const Color(0xFF132238),
-      shape: RoundedRectangleBorder(
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF132A4A),
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF2D8CFF).withOpacity(0.30),
+        ),
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-
-        leading: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.06),
-            shape: BoxShape.circle,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Image.asset(_providerAsset()),
-          ),
-        ),
-
-        title: Text(
-          name,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-
-        subtitle: Text(
-          provider,
-          style: const TextStyle(color: Colors.white70),
-        ),
-
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isConnected ? Icons.check_circle : Icons.circle_outlined,
-              color: isConnected ? Colors.green : Colors.white30,
+      child: Row(
+        children: [
+          Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: const Color(0xFF233F6B),
+              borderRadius: BorderRadius.circular(18),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline_rounded),
-              color: Colors.white54,
+            child: const Icon(
+              Icons.storage_rounded,
+              size: 34,
+              color: Colors.white,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  provider,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (trailing != null) trailing!,
+          if (trailing == null && isConnected)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1D4D3C),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.green.withOpacity(0.35),
+                ),
+              ),
+              child: const Text(
+                'Active',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

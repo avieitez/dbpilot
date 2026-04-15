@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/connection_request.dart';
@@ -7,6 +8,14 @@ import '../models/database_provider.dart';
 
 class SavedConnectionStorageService {
   static const String _storageKey = 'saved_connections';
+  static const String _activeConnectionIdKey = 'active_connection_id';
+  static const String _passwordKeyPrefix = 'connection_password_';
+
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+  );
 
   Future<void> saveConnection(
     ConnectionRequest request, {
@@ -44,6 +53,8 @@ class SavedConnectionStorageService {
 
     filtered.add(newItem);
     await prefs.setStringList(_storageKey, filtered);
+
+    await _savePassword(connectionId, request.password);
   }
 
   Future<List<Map<String, dynamic>>> getSavedConnections() async {
@@ -93,6 +104,21 @@ class SavedConnectionStorageService {
     return result;
   }
 
+  Future<Map<String, dynamic>?> getConnectionById(String id) async {
+    final connections = await getSavedConnections();
+
+    try {
+      final item = Map<String, dynamic>.from(
+        connections.firstWhere((c) => c['id']?.toString() == id),
+      );
+
+      item['password'] = await getPasswordByConnectionId(id);
+      return item;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> deleteConnectionById(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final items = prefs.getStringList(_storageKey) ?? <String>[];
@@ -107,11 +133,58 @@ class SavedConnectionStorageService {
     }).toList();
 
     await prefs.setStringList(_storageKey, filtered);
+    await _deletePassword(id);
+
+    final activeId = prefs.getString(_activeConnectionIdKey);
+    if (activeId == id) {
+      await prefs.remove(_activeConnectionIdKey);
+    }
   }
 
   Future<void> clearAllConnections() async {
     final prefs = await SharedPreferences.getInstance();
+    final connections = await getSavedConnections();
+
+    for (final connection in connections) {
+      final id = ensureConnectionId(connection);
+      await _deletePassword(id);
+    }
+
     await prefs.remove(_storageKey);
+    await prefs.remove(_activeConnectionIdKey);
+  }
+
+  Future<void> setActiveConnectionId(String connectionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_activeConnectionIdKey, connectionId);
+  }
+
+  Future<String?> getActiveConnectionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_activeConnectionIdKey);
+  }
+
+  Future<void> clearActiveConnectionId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_activeConnectionIdKey);
+  }
+
+  Future<Map<String, dynamic>?> getActiveConnection() async {
+    final activeId = await getActiveConnectionId();
+    if (activeId == null || activeId.isEmpty) return null;
+
+    return getConnectionById(activeId);
+  }
+
+  Future<String?> getPasswordByConnectionId(String connectionId) async {
+    return _secureStorage.read(key: _passwordStorageKey(connectionId));
+  }
+
+  Future<void> updatePasswordByConnectionId(
+    String connectionId,
+    String password,
+  ) async {
+    await _savePassword(connectionId, password);
   }
 
   DatabaseProvider providerFromName(String name) {
@@ -157,5 +230,22 @@ class SavedConnectionStorageService {
       port.trim(),
       name.trim().toLowerCase(),
     ].join('|');
+  }
+
+  String _passwordStorageKey(String connectionId) {
+    return '$_passwordKeyPrefix$connectionId';
+  }
+
+  Future<void> _savePassword(String connectionId, String password) async {
+    await _secureStorage.write(
+      key: _passwordStorageKey(connectionId),
+      value: password,
+    );
+  }
+
+  Future<void> _deletePassword(String connectionId) async {
+    await _secureStorage.delete(
+      key: _passwordStorageKey(connectionId),
+    );
   }
 }

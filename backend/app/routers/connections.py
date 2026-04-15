@@ -1,25 +1,22 @@
-from uuid import uuid4
+from fastapi import APIRouter, HTTPException
 
-from fastapi import APIRouter
+from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
+from app.services.db_tester import ConnectionTestError, DbTesterService
 
-from app.core.security import CredentialCipher
-from app.models.connection import ConnectionCreate, ConnectionResponse
-
-router = APIRouter(prefix="/connections", tags=["connections"])
-
-FERNET_KEY = b"2qVxv5dNydg5RBI7fA4yp6k5uI8mTi1Ksz95jM0f3A8="
-cipher = CredentialCipher(FERNET_KEY)
+router = APIRouter(prefix="/api/v1", tags=["connections"])
+service = DbTesterService()
 
 
-@router.post("", response_model=ConnectionResponse)
-def create_connection(payload: ConnectionCreate) -> ConnectionResponse:
-    return ConnectionResponse(
-        id=str(uuid4()),
-        name=payload.name,
-        provider=payload.provider,
-        host=payload.host,
-        port=payload.port,
-        database=payload.database,
-        username=payload.username,
-        encrypted_password=cipher.encrypt(payload.password),
-    )
+@router.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.post("/test-connection", response_model=ConnectionTestResponse)
+def test_connection(payload: ConnectionTestRequest) -> ConnectionTestResponse:
+    try:
+        return service.test_connection(payload)
+    except ConnectionTestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
