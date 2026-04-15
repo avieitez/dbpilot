@@ -14,8 +14,27 @@ class SavedConnectionCard extends StatelessWidget {
   final bool isConnected;
   final Widget? trailing;
 
+  String _providerAsset(String provider) {
+    switch (provider.toLowerCase().trim()) {
+      case 'postgresql':
+      case 'postgres':
+        return 'assets/providers/postgres.png';
+      case 'oracle':
+        return 'assets/providers/oracle.png';
+      case 'sql server':
+      case 'sqlserver':
+      case 'sql_server':
+      case 'mssql':
+        return 'assets/providers/sql_server.png';
+      default:
+        return 'assets/icons/database.png';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final providerAsset = _providerAsset(provider);
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -30,14 +49,21 @@ class SavedConnectionCard extends StatelessWidget {
           Container(
             width: 62,
             height: 62,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: const Color(0xFF233F6B),
               borderRadius: BorderRadius.circular(18),
             ),
-            child: const Icon(
-              Icons.storage_rounded,
-              size: 34,
-              color: Colors.white,
+            child: Image.asset(
+              providerAsset,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.storage_rounded,
+                  size: 34,
+                  color: Colors.white,
+                );
+              },
             ),
           ),
           const SizedBox(width: 16),
