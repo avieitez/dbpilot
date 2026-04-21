@@ -15,7 +15,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> {
   final _storageService = SavedConnectionStorageService();
   final _apiService = ConnectionApiService();
 
@@ -31,7 +31,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _loadSavedConnections();
     _loadBanner();
   }
@@ -96,6 +95,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _activateSavedConnection(Map<String, dynamic> connection) async {
     setState(() => _connecting = true);
 
+    if (mounted) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     try {
       final connectionId = _storageService.ensureConnectionId(connection);
       final fullConnection = await _storageService.getConnectionById(connectionId);
@@ -125,6 +134,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
 
       if (!result.success) {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result.message)),
         );
@@ -135,6 +147,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _loadSavedConnections();
 
       if (!mounted) return;
+
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -145,6 +162,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       );
     } catch (error) {
+      if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -155,6 +175,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     } finally {
       if (mounted) {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
         setState(() => _connecting = false);
       }
     }
@@ -262,26 +285,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _storageService.setActiveConnectionId('');
-      if (mounted) {
-        setState(() {
-          _activeConnectionId = null;
-          _activeConnection = null;
-        });
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      _loadSavedConnections();
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _storageService.setActiveConnectionId('');
     _bannerAd?.dispose();
     _apiService.dispose();
     super.dispose();
@@ -334,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             padding: const EdgeInsets.only(bottom: 12),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(18),
-                              onTap: null,
+                              onTap: _connecting ? null : () => _activateSavedConnection(c),
                               child: SavedConnectionCard(
                                 provider: _providerLabel(c['provider'] ?? ''),
                                 name: c['name'] ?? '',
@@ -378,33 +382,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       itemBuilder: (context) => const [
                                         PopupMenuItem(
                                           value: 'connect',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.link_rounded, size: 20),
-                                              SizedBox(width: 10),
-                                              Text('Connect'),
-                                            ],
-                                          ),
+                                          child: Text('Connect'),
                                         ),
                                         PopupMenuItem(
                                           value: 'edit',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.edit_rounded, size: 20),
-                                              SizedBox(width: 10),
-                                              Text('Edit'),
-                                            ],
-                                          ),
+                                          child: Text('Edit'),
                                         ),
                                         PopupMenuItem(
                                           value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.delete_outline_rounded, size: 20),
-                                              SizedBox(width: 10),
-                                              Text('Delete'),
-                                            ],
-                                          ),
+                                          child: Text('Delete'),
                                         ),
                                       ],
                                       icon: const Icon(Icons.more_vert_rounded),
@@ -414,15 +400,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               ),
                             ),
                           );
-                        }),
-Card(
+                        }),                          const SizedBox(height: 20),
+                          const Text(
+                            'Recent Queries',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Card(
                             color: const Color(0xFF132238),
                             child: ListTile(
                               leading: const Icon(
                                 Icons.query_stats_rounded,
                                 color: Colors.white70,
                               ),
-                              title: const Text('Daily Sales Report'),
+                              title: const Text('Top Customers Q1'),
                               trailing: const Icon(Icons.chevron_right),
                             ),
                           ),

@@ -154,6 +154,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   ConnectionRequest _buildRequest() {
+    final databaseValue = _databaseController.text.trim();
+
     return ConnectionRequest(
       name: _nameController.text.trim(),
       provider: _selectedProvider,
@@ -161,7 +163,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       port: _portController.text.trim(),
       username: _usernameController.text.trim(),
       password: _passwordController.text,
-      database: _databaseController.text.trim(),
+      database: _isOracle
+          ? databaseValue
+          : (databaseValue.isNotEmpty
+              ? databaseValue
+              : (_selectedProvider == DatabaseProvider.postgresql
+                  ? 'postgres'
+                  : 'master')),
       serviceName: _isOracle
           ? _serviceNameController.text.trim().isEmpty
               ? null
@@ -428,24 +436,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     children: [
                       Row(
                         children: DatabaseProvider.values.map((provider) {
-                          final isLocked = _isEditing && provider != _selectedProvider;
                           return Expanded(
                             child: Padding(
                               padding: EdgeInsets.only(
                                 right: provider == DatabaseProvider.oracle ? 0 : 10,
                               ),
-                              child: Opacity(
-                                opacity: isLocked ? 0.45 : 1.0,
-                                child: AbsorbPointer(
-                                  absorbing: isLocked,
-                                  child: SizedBox(
-                                    height: 76,
-                                    child: ProviderSelectorCard(
-                                      provider: provider,
-                                      selected: provider == _selectedProvider,
-                                      onTap: () => _onProviderSelected(provider),
-                                    ),
-                                  ),
+                              child: SizedBox(
+                                height: 76,
+                                child: ProviderSelectorCard(
+                                  provider: provider,
+                                  selected: provider == _selectedProvider,
+                                  onTap: () => _onProviderSelected(provider),
                                 ),
                               ),
                             ),
@@ -545,7 +546,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 controller: _databaseController,
                                 focusNode: _databaseFocus,
                                 fieldKey: 'database',
-                                label: 'Database',
+                                label: 'Database (Optional)',
                                 hint: _selectedProvider == DatabaseProvider.postgresql
                                     ? 'postgres'
                                     : 'master',
