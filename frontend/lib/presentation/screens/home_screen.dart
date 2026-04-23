@@ -7,6 +7,9 @@ import '../../services/connection_api_service.dart';
 import '../../services/saved_connection_storage_service.dart';
 import '../widgets/saved_connection_card.dart';
 import 'connection_screen.dart';
+import 'oracle_main.dart';
+import 'postgresql_main.dart';
+import 'sqlserver_main.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -92,6 +95,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _openProviderMain(ConnectionRequest request) async {
+    final databaseName = (request.database ?? '').trim().isNotEmpty
+        ? request.database!.trim()
+        : (request.provider == DatabaseProvider.postgresql ? 'postgres' : 'master');
+
+    final oracleTarget = (request.serviceName ?? '').trim().isNotEmpty
+        ? request.serviceName!.trim()
+        : (request.sid ?? '').trim().isNotEmpty
+            ? request.sid!.trim()
+            : databaseName;
+
+    Widget screen;
+    switch (request.provider) {
+      case DatabaseProvider.sqlServer:
+        screen = SqlServerMain(
+          connectionName: request.name,
+          host: request.host,
+          database: databaseName,
+        );
+        break;
+      case DatabaseProvider.postgresql:
+        screen = PostgreSqlMain(
+          connectionName: request.name,
+          host: request.host,
+          database: databaseName,
+        );
+        break;
+      case DatabaseProvider.oracle:
+        screen = OracleMain(
+          connectionName: request.name,
+          host: request.host,
+          targetName: oracleTarget.isEmpty ? 'XE' : oracleTarget,
+        );
+        break;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+  }
+
   Future<void> _activateSavedConnection(Map<String, dynamic> connection) async {
     setState(() => _connecting = true);
 
@@ -161,6 +205,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       );
+
+      await _openProviderMain(request);
     } catch (error) {
       if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -330,77 +376,78 @@ class _HomeScreenState extends State<HomeScreen> {
                     : ListView(
                         padding: EdgeInsets.zero,
                         children: [
-                        ..._connections.map((c) {
-                          final connectionId = _storageService.ensureConnectionId(c);
-                          final isActive = connectionId == _activeConnectionId;
+                          ..._connections.map((c) {
+                            final connectionId = _storageService.ensureConnectionId(c);
+                            final isActive = connectionId == _activeConnectionId;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(18),
-                              onTap: _connecting ? null : () => _activateSavedConnection(c),
-                              child: SavedConnectionCard(
-                                provider: _providerLabel(c['provider'] ?? ''),
-                                name: c['name'] ?? '',
-                                isConnected: isActive,
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isActive)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 10,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF1D4D3C),
-                                          borderRadius: BorderRadius.circular(999),
-                                          border: Border.all(
-                                            color: Colors.green.withOpacity(0.35),
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(18),
+                                onTap: _connecting ? null : () => _activateSavedConnection(c),
+                                child: SavedConnectionCard(
+                                  provider: _providerLabel(c['provider'] ?? ''),
+                                  name: c['name'] ?? '',
+                                  isConnected: isActive,
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isActive)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF1D4D3C),
+                                            borderRadius: BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: Colors.green.withOpacity(0.35),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Active',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.white,
+                                            ),
                                           ),
                                         ),
-                                        child: const Text(
-                                          'Active',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.white,
+                                      const SizedBox(width: 6),
+                                      PopupMenuButton<String>(
+                                        onSelected: (value) async {
+                                          if (value == 'connect') {
+                                            await _activateSavedConnection(c);
+                                          } else if (value == 'edit') {
+                                            await _openConnectionScreen(initialData: c);
+                                          } else if (value == 'delete') {
+                                            await _deleteConnection(c);
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(
+                                            value: 'connect',
+                                            child: Text('Connect'),
                                           ),
-                                        ),
+                                          PopupMenuItem(
+                                            value: 'edit',
+                                            child: Text('Edit'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Text('Delete'),
+                                          ),
+                                        ],
+                                        icon: const Icon(Icons.more_vert_rounded),
                                       ),
-                                    const SizedBox(width: 6),
-                                    PopupMenuButton<String>(
-                                      onSelected: (value) async {
-                                        if (value == 'connect') {
-                                          await _activateSavedConnection(c);
-                                        } else if (value == 'edit') {
-                                          await _openConnectionScreen(initialData: c);
-                                        } else if (value == 'delete') {
-                                          await _deleteConnection(c);
-                                        }
-                                      },
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(
-                                          value: 'connect',
-                                          child: Text('Connect'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'edit',
-                                          child: Text('Edit'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'delete',
-                                          child: Text('Delete'),
-                                        ),
-                                      ],
-                                      icon: const Icon(Icons.more_vert_rounded),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        }),                          const SizedBox(height: 20),
+                            );
+                          }),
+                          const SizedBox(height: 20),
                           const Text(
                             'Recent Queries',
                             style: TextStyle(

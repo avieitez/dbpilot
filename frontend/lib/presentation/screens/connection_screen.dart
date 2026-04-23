@@ -6,6 +6,9 @@ import '../../models/database_provider.dart';
 import '../../services/connection_api_service.dart';
 import '../../services/saved_connection_storage_service.dart';
 import '../widgets/provider_selector_card.dart';
+import 'oracle_main.dart';
+import 'postgresql_main.dart';
+import 'sqlserver_main.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({
@@ -187,6 +190,47 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
+  Future<void> _openProviderMain(ConnectionRequest request) async {
+    final databaseName = (request.database ?? '').trim().isNotEmpty
+        ? request.database!.trim()
+        : (request.provider == DatabaseProvider.postgresql ? 'postgres' : 'master');
+
+    final oracleTarget = (request.serviceName ?? '').trim().isNotEmpty
+        ? request.serviceName!.trim()
+        : (request.sid ?? '').trim().isNotEmpty
+            ? request.sid!.trim()
+            : databaseName;
+
+    Widget screen;
+    switch (request.provider) {
+      case DatabaseProvider.sqlServer:
+        screen = SqlServerMain(
+          connectionName: request.name,
+          host: request.host,
+          database: databaseName,
+        );
+        break;
+      case DatabaseProvider.postgresql:
+        screen = PostgreSqlMain(
+          connectionName: request.name,
+          host: request.host,
+          database: databaseName,
+        );
+        break;
+      case DatabaseProvider.oracle:
+        screen = OracleMain(
+          connectionName: request.name,
+          host: request.host,
+          targetName: oracleTarget.isEmpty ? 'XE' : oracleTarget,
+        );
+        break;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+  }
+
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -209,6 +253,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ? result.message
             : '${result.message} (${result.durationMs} ms)';
       });
+
+      if (!result.success) {
+        return;
+      }
+
+      final connectionId =
+          _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+
+      await _storageService.saveConnection(
+        request,
+        existingId: connectionId,
+      );
+      await _storageService.setActiveConnectionId(connectionId);
+
+      if (!mounted) return;
+      await _openProviderMain(request);
     } catch (error) {
       if (!mounted) return;
       setState(() {
