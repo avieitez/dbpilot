@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.connections import router as connections_router
+from app.routers.db_explorer import router as db_explorer_router
 
 app = FastAPI(
     title="DBPilot API",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 app.add_middleware(
@@ -21,7 +22,8 @@ def health():
     return {"status": "ok"}
 
 app.include_router(connections_router)
+app.include_router(db_explorer_router)
 
 @app.get("/")
 def root():
-    return {"message": "DBPilot FASTAPI OK V3"}
+    return {"message": "DBPilot FASTAPI OK V4"}

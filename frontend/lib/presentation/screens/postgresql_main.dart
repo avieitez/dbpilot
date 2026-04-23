@@ -1,52 +1,24 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/db_admin_shell.dart';
+import '../../models/connection_request.dart';
+import '../widgets/db_object_explorer_shell.dart';
 
 class PostgreSqlMain extends StatelessWidget {
   const PostgreSqlMain({
     super.key,
-    required this.connectionName,
-    required this.host,
-    required this.database,
+    required this.connection,
   });
 
-  final String connectionName;
-  final String host;
-  final String database;
+  final ConnectionRequest connection;
 
   @override
   Widget build(BuildContext context) {
-    return DbAdminShell(
-      title: 'PostgreSQL Administrator',
-      providerLabel: 'POSTGRES',
-      connectionSummary: '$connectionName\n$host / $database',
-      headerColor: const Color(0xFF1F4DA8),
-      sections: const [
-        DbAdminSection(
-          title: 'Tables',
-          count: 10,
-          items: ['users', 'orders', 'products'],
-          icon: Icons.table_chart_rounded,
-        ),
-        DbAdminSection(
-          title: 'Views',
-          count: 2,
-          items: ['active_users_view', 'sales_by_day_view'],
-          icon: Icons.view_quilt_rounded,
-        ),
-        DbAdminSection(
-          title: 'Functions',
-          count: 7,
-          items: ['fn_get_user_age', 'fn_total_sales', 'fn_calc_tax'],
-          icon: Icons.functions_rounded,
-        ),
-        DbAdminSection(
-          title: 'Extensions',
-          count: 4,
-          items: ['uuid-ossp', 'pgcrypto'],
-          icon: Icons.extension_rounded,
-        ),
-      ],
+    final databaseName = connection.database.trim().isNotEmpty ? connection.database : 'postgres';
+
+    return DbObjectExplorerShell(
+      providerLabel: 'POSTGRESQL',
+      connectionSummary: '${connection.name}\n${connection.host} / $databaseName',
+      connection: connection.copyWith(database: databaseName),
     );
   }
 }

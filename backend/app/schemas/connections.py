@@ -1,3 +1,4 @@
+from typing import Any
 from pydantic import BaseModel
 
 class ConnectionTestRequest(BaseModel):
@@ -17,3 +18,48 @@ class ConnectionTestResponse(BaseModel):
     success: bool
     message: str
     durationMs: int | None = None
+
+class DbObjectInfo(BaseModel):
+    name: str
+    subtitle: str
+    objectType: str
+
+class DbObjectGroup(BaseModel):
+    key: str
+    label: str
+    items: list[DbObjectInfo]
+
+class DbObjectListResponse(BaseModel):
+    provider: str
+    groups: list[DbObjectGroup]
+
+class DbColumnInfoResponse(BaseModel):
+    name: str
+    dataType: str
+    isNullable: bool
+    flag: str | None = None
+
+class DbObjectStructureResponse(BaseModel):
+    provider: str
+    objectName: str
+    objectType: str
+    columns: list[DbColumnInfoResponse]
+
+class DbObjectPreviewResponse(BaseModel):
+    provider: str
+    objectName: str
+    objectType: str
+    columns: list[str]
+    rows: list[list[Any]]
+    rowCount: int
+
+class ObjectStructureRequest(BaseModel):
+    connection: ConnectionTestRequest
+    objectName: str
+    objectType: str
+
+class ObjectPreviewRequest(BaseModel):
+    connection: ConnectionTestRequest
+    objectName: str
+    objectType: str
+    limit: int = 50

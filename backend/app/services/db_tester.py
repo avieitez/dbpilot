@@ -2,6 +2,7 @@ import time
 
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
 from app.core.db_connectors.postgres import test_postgres_connection
+from app.core.db_connectors.sqlserver import test_sqlserver_connection
 
 
 class ConnectionTestError(Exception):
@@ -66,8 +67,4 @@ class DbTesterService:
         }
 
     def _test_sql_server(self, payload: ConnectionTestRequest) -> dict:
-        encryption = "with encryption" if payload.encrypt else "without encryption"
-        return {
-            "success": True,
-            "message": f"SQL Server connector reached successfully ({encryption})",
-        }
+        return test_sqlserver_connection(payload)

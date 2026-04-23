@@ -190,39 +190,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
+
   Future<void> _openProviderMain(ConnectionRequest request) async {
-    final databaseName = (request.database ?? '').trim().isNotEmpty
-        ? request.database!.trim()
-        : (request.provider == DatabaseProvider.postgresql ? 'postgres' : 'master');
-
-    final oracleTarget = (request.serviceName ?? '').trim().isNotEmpty
-        ? request.serviceName!.trim()
-        : (request.sid ?? '').trim().isNotEmpty
-            ? request.sid!.trim()
-            : databaseName;
-
     Widget screen;
     switch (request.provider) {
       case DatabaseProvider.sqlServer:
-        screen = SqlServerMain(
-          connectionName: request.name,
-          host: request.host,
-          database: databaseName,
-        );
+        screen = SqlServerMain(connection: request);
         break;
       case DatabaseProvider.postgresql:
-        screen = PostgreSqlMain(
-          connectionName: request.name,
-          host: request.host,
-          database: databaseName,
-        );
+        screen = PostgreSqlMain(connection: request);
         break;
       case DatabaseProvider.oracle:
-        screen = OracleMain(
-          connectionName: request.name,
-          host: request.host,
-          targetName: oracleTarget.isEmpty ? 'XE' : oracleTarget,
-        );
+        screen = OracleMain(connection: request);
         break;
     }
 
@@ -281,6 +260,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       }
     }
   }
+
 
   Future<void> _saveConnection() async {
     if (!_formKey.currentState!.validate()) return;

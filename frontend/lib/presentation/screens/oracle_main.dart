@@ -1,50 +1,60 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/db_admin_shell.dart';
+import '../../models/connection_request.dart';
+import '../widgets/db_object_explorer_shell.dart';
 
 class OracleMain extends StatelessWidget {
   const OracleMain({
     super.key,
-    required this.connectionName,
-    required this.host,
-    required this.targetName,
+    required this.connection,
   });
 
-  final String connectionName;
-  final String host;
-  final String targetName;
+  final ConnectionRequest connection;
 
   @override
   Widget build(BuildContext context) {
-    return DbAdminShell(
-      title: 'Oracle Administrator',
+    final targetName = (connection.serviceName ?? '').trim().isNotEmpty
+        ? connection.serviceName!.trim()
+        : (connection.sid ?? '').trim().isNotEmpty
+            ? connection.sid!.trim()
+            : 'XE';
+
+    return DbObjectExplorerShell(
       providerLabel: 'ORACLE',
-      connectionSummary: '$connectionName\n$host / $targetName',
-      headerColor: const Color(0xFFB51F1F),
-      sections: const [
-        DbAdminSection(
-          title: 'Tables',
-          count: 12,
-          items: ['CUSTOMERS', 'ORDERS', 'EMPLOYEES'],
-          icon: Icons.grid_view_rounded,
+      connectionSummary: '${connection.name}\n${connection.host} / $targetName',
+      connection: connection,
+      loadFromBackend: false,
+      initialCategories: const [
+        DbCategoryGroup(
+          category: DbObjectCategory.tables,
+          label: 'Tables',
+          items: [
+            DbExplorerObject(
+              name: 'CUSTOMERS',
+              subtitle: '5 cols',
+              category: DbObjectCategory.tables,
+              columns: [
+                DbColumnInfo(name: 'CUSTOMER_ID', type: 'NUMBER', flag: 'PK'),
+                DbColumnInfo(name: 'FIRST_NAME', type: 'VARCHAR2(100)'),
+                DbColumnInfo(name: 'LAST_NAME', type: 'VARCHAR2(100)'),
+                DbColumnInfo(name: 'EMAIL', type: 'VARCHAR2(255)'),
+                DbColumnInfo(name: 'CREATED_AT', type: 'DATE'),
+              ],
+            ),
+          ],
         ),
-        DbAdminSection(
-          title: 'Procedures',
-          count: 5,
-          items: ['SP_UPDATE_ORDER', 'SP_CLOSE_DAY'],
-          icon: Icons.account_tree_rounded,
-        ),
-        DbAdminSection(
-          title: 'Functions',
-          count: 4,
-          items: ['FN_TOTAL_SALES', 'FN_GET_DISCOUNT'],
-          icon: Icons.functions_rounded,
-        ),
-        DbAdminSection(
-          title: 'Triggers',
-          count: 3,
-          items: ['TRG_AUDIT_ORDER', 'TRG_SET_DATE'],
-          icon: Icons.local_fire_department_rounded,
+        DbCategoryGroup(
+          category: DbObjectCategory.procedures,
+          label: 'Procedures',
+          items: [
+            DbExplorerObject(
+              name: 'SP_UPDATE_ORDER',
+              subtitle: 'Procedure',
+              category: DbObjectCategory.procedures,
+              previewQuery: 'BEGIN\n  SP_UPDATE_ORDER(1001);\nEND;',
+              objectType: 'procedure',
+            ),
+          ],
         ),
       ],
     );
