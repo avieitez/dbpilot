@@ -1,22 +1,22 @@
 from app.schemas.connections import (
     ConnectionTestRequest,
-    DbObjectGroup,
-    DbObjectInfo,
     DbObjectListResponse,
     DbObjectStructureResponse,
     DbObjectPreviewResponse,
-    DbColumnInfoResponse,
 )
 from app.core.db_connectors.postgres import (
     get_postgres_objects,
     get_postgres_object_structure,
     get_postgres_object_preview,
+    execute_postgres_query,
 )
 from app.core.db_connectors.sqlserver import (
     get_sqlserver_objects,
     get_sqlserver_object_structure,
     get_sqlserver_object_preview,
+    execute_sqlserver_query,
 )
+
 
 class DbExplorerError(Exception):
     pass
@@ -25,8 +25,8 @@ class DbExplorerError(Exception):
 class DbExplorerService:
     def get_objects(self, payload: ConnectionTestRequest) -> DbObjectListResponse:
         self._validate_connection_payload(payload)
-
         provider = payload.provider.lower().strip()
+
         if provider == "postgresql":
             groups = get_postgres_objects(payload)
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
@@ -43,12 +43,9 @@ class DbExplorerService:
         object_type: str,
     ) -> DbObjectStructureResponse:
         self._validate_connection_payload(payload)
-        if not object_name or not object_name.strip():
-            raise DbExplorerError("Object name is required")
-        if not object_type or not object_type.strip():
-            raise DbExplorerError("Object type is required")
-
+        self._validate_object(object_name, object_type)
         provider = payload.provider.lower().strip()
+
         if provider == "postgresql":
             columns = get_postgres_object_structure(payload, object_name, object_type)
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
@@ -71,14 +68,10 @@ class DbExplorerService:
         limit: int,
     ) -> DbObjectPreviewResponse:
         self._validate_connection_payload(payload)
-        if not object_name or not object_name.strip():
-            raise DbExplorerError("Object name is required")
-        if not object_type or not object_type.strip():
-            raise DbExplorerError("Object type is required")
-        if limit < 1 or limit > 200:
-            raise DbExplorerError("Limit must be between 1 and 200")
-
+        self._validate_object(object_name, object_type)
+        self._validate_limit(limit)
         provider = payload.provider.lower().strip()
+
         if provider == "postgresql":
             columns, rows = get_postgres_object_preview(payload, object_name, object_type, limit)
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
@@ -95,6 +88,25 @@ class DbExplorerService:
             rowCount=len(rows),
         )
 
+    def execute_query(self, payload: ConnectionTestRequest, sql: str, limit: int):
+        self._validate_connection_payload(payload)
+        self._validate_limit(limit, max_limit=500)
+        clean_sql = (sql or "").strip()
+
+        if not clean_sql:
+            raise DbExplorerError("SQL is required")
+
+        if not clean_sql.lower().startswith("select"):
+            raise DbExplorerError("Por seguridad, por ahora solo se permiten consultas SELECT.")
+
+        provider = payload.provider.lower().strip()
+        if provider == "postgresql":
+            return execute_postgres_query(payload, clean_sql, limit)
+        if provider in ("sqlserver", "sql_server", "sql server", "mssql"):
+            return execute_sqlserver_query(payload, clean_sql, limit)
+
+        raise ValueError(f"Unsupported provider: {payload.provider}")
+
     def _validate_connection_payload(self, payload: ConnectionTestRequest) -> None:
         if not payload.host or not payload.host.strip():
             raise DbExplorerError("Host is required")
@@ -106,3 +118,13 @@ class DbExplorerService:
             raise DbExplorerError("Password is required")
         if not payload.database or not payload.database.strip():
             raise DbExplorerError("Database is required")
+
+    def _validate_object(self, object_name: str, object_type: str) -> None:
+        if not object_name or not object_name.strip():
+            raise DbExplorerError("Object name is required")
+        if not object_type or not object_type.strip():
+            raise DbExplorerError("Object type is required")
+
+    def _validate_limit(self, limit: int, max_limit: int = 200) -> None:
+        if limit < 1 or limit > max_limit:
+            raise DbExplorerError(f"Limit must be between 1 and {max_limit}")
