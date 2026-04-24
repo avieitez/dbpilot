@@ -206,7 +206,7 @@ class ConnectionApiService {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
     }
 
-    final data = _decode(response);
+    _decode(response);
     return ((data['groups'] ?? []) as List)
         .map((e) => DbExplorerGroup.fromJson(Map<String, dynamic>.from(e)))
         .toList();
@@ -240,7 +240,7 @@ class ConnectionApiService {
     return DbObjectStructureResult.fromJson(_decode(response));
   }
 
-  Future<DbObjectPreviewResult> getObjectPreview(
+  Future<QueryExecuteResult> getObjectPreview(
     ConnectionRequest request,
     String objectName,
     String objectType, {
@@ -286,6 +286,35 @@ class ConnectionApiService {
   String _errorMessage(http.Response response) {
     final data = _decode(response);
     return (data['detail'] ?? data['message'] ?? response.body).toString();
+  }
+
+  Future<QueryExecuteResult> executeQuery(
+    ConnectionRequest request,
+    String sql, {
+    int limit = 100,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/v1/execute-query');
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'sql': sql,
+        'limit': limit,
+      }),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    if (response.statusCode != 200) {
+      final message = data['detail'] ?? data['message'] ?? response.body;
+      throw Exception('Error ${response.statusCode}: $message');
+    }
+
+    return QueryExecuteResult.fromJson(data);
   }
 
   void dispose() {
