@@ -175,7 +175,7 @@ class ConnectionApiService {
   }
 
   Future<List<DbExplorerGroup>> getDbObjects(ConnectionRequest request) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/objects');
+    final uri = Uri.parse('$_baseUrl/api/v1/objects');
 
     final response = await _client.post(
       uri,
@@ -202,7 +202,7 @@ class ConnectionApiService {
     String objectName,
     String objectType,
   ) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/object-structure');
+    final uri = Uri.parse('$_baseUrl/api/v1/object-structure');
 
     final response = await _client.post(
       uri,
@@ -232,7 +232,7 @@ class ConnectionApiService {
     String objectType, {
     int limit = 50,
   }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/object-preview');
+    final uri = Uri.parse('$_baseUrl/api/v1/object-preview');
 
     final response = await _client.post(
       uri,
