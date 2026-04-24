@@ -190,8 +190,17 @@ class ConnectionApiService {
   }
 
   Future<List<DbExplorerGroup>> getDbObjects(ConnectionRequest request) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/objects');
-    final response = await _post(uri, request.toJson());
+    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/objects');
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
@@ -208,12 +217,21 @@ class ConnectionApiService {
     String objectName,
     String objectType,
   ) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/object-structure');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-    });
+    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/object-structure');
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'objectName': objectName,
+        'objectType': objectType,
+      }),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
@@ -228,32 +246,22 @@ class ConnectionApiService {
     String objectType, {
     int limit = 50,
   }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/object-preview');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-      'limit': limit,
-    });
+    final uri = Uri.parse('$_baseUrl/api/v1/db-explorer/object-preview');
 
-    if (response.statusCode != 200) {
-      throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
-    }
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'objectName': objectName,
+        'objectType': objectType,
+        'limit': limit,
+      }),
+    );
 
-    return DbObjectPreviewResult.fromJson(_decode(response));
-  }
-
-  Future<QueryExecuteResult> executeQuery(
-    ConnectionRequest request,
-    String sql, {
-    int limit = 100,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/execute-query');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'sql': sql,
-      'limit': limit,
-    });
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
