@@ -10,7 +10,7 @@ from app.schemas.connections import (
 )
 from app.services.db_explorer_service import DbExplorerError, DbExplorerService
 
-router = APIRouter(prefix="/api/v1/db-explorer", tags=["db-explorer"])
+router = APIRouter(prefix="/api/v1", tags=["db_explorer"])
 service = DbExplorerService()
 
 @router.post("/objects", response_model=DbObjectListResponse)
