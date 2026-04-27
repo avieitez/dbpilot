@@ -10,6 +10,8 @@ import 'oracle_main.dart';
 import 'postgresql_main.dart';
 import 'sqlserver_main.dart';
 
+import '../../core/strings/strings.dart';
+
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({
     super.key,
@@ -460,7 +462,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditing ? 'Edit Connection' : 'New Connection'),
+        title: Text(_isEditing ? AppStrings.editConnection : AppStrings.newConnection),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -498,7 +500,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         controller: _nameController,
                         focusNode: _nameFocus,
                         fieldKey: 'name',
-                        label: 'Connection Name',
+                        label: AppStrings.connectionName,
                         hint: 'Enter Name',
                         validator: (value) => value == null || value.trim().isEmpty
                             ? 'Enter a name for this connection'
@@ -509,7 +511,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         controller: _hostController,
                         focusNode: _hostFocus,
                         fieldKey: 'host',
-                        label: 'Host',
+                        label: AppStrings.host,
                         hint: 'Hostname / IP',
                         validator: _requiredValidator,
                       ),
@@ -518,7 +520,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         controller: _usernameController,
                         focusNode: _usernameFocus,
                         fieldKey: 'username',
-                        label: 'Username',
+                        label: AppStrings.userName,
                         hint: 'Enter Username',
                         validator: _requiredValidator,
                       ),
@@ -527,7 +529,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         controller: _passwordController,
                         focusNode: _passwordFocus,
                         fieldKey: 'password',
-                        label: 'Password',
+                        label: AppStrings.password,
                         hint: '••••••••',
                         obscureText: _obscurePassword,
                         validator: _requiredValidator,
@@ -551,7 +553,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           tilePadding: EdgeInsets.zero,
                           childrenPadding: EdgeInsets.zero,
                           title: const Text(
-                            'Advanced settings',
+                            AppStrings.advancedSettings,
                             style: TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.w600,
@@ -567,7 +569,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                               controller: _portController,
                               focusNode: _portFocus,
                               fieldKey: 'port',
-                              label: 'Port',
+                              label: AppStrings.port,
                               hint: _selectedProvider.defaultPort,
                               keyboardType: TextInputType.number,
                               validator: (value) {
@@ -586,7 +588,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 controller: _databaseController,
                                 focusNode: _databaseFocus,
                                 fieldKey: 'database',
-                                label: 'Database (Optional)',
+                                label: AppStrings.database,
                                 hint: _selectedProvider == DatabaseProvider.postgresql
                                     ? 'postgres'
                                     : 'master',
@@ -596,7 +598,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 controller: _serviceNameController,
                                 focusNode: _serviceNameFocus,
                                 fieldKey: 'serviceName',
-                                label: 'Service Name',
+                                label: AppStrings.serviceName,
                                 hint: 'XE',
                                 validator: (value) {
                                   final sidValue = _sidController.text.trim();
@@ -612,7 +614,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 controller: _sidController,
                                 focusNode: _sidFocus,
                                 fieldKey: 'sid',
-                                label: 'SID',
+                                label: AppStrings.sid,
                                 hint: 'xe',
                               ),
                             ],
@@ -695,7 +697,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                       )
                                     : const Icon(Icons.link_rounded),
                                 label: const Text(
-                                  'Test',
+                                  AppStrings.test,
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
@@ -721,7 +723,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                   _isEditing ? Icons.save_as_rounded : Icons.save_rounded,
                                 ),
                                 label: Text(
-                                  _isEditing ? 'Update' : 'Save',
+                                  _isEditing ? AppStrings.update : AppStrings.safe,
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,

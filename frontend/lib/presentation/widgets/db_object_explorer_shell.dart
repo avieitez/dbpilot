@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../models/connection_request.dart';
 import '../../services/connection_api_service.dart';
 
+import '../../core/strings/strings.dart';
+
 enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
 
 class DbExplorerObject {
@@ -296,17 +298,17 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   String _objectTypeFromCategory(DbObjectCategory category) {
     switch (category) {
       case DbObjectCategory.tables:
-        return 'table';
+        return AppStrings.table;
       case DbObjectCategory.views:
-        return 'view';
+        return AppStrings.view;
       case DbObjectCategory.procedures:
-        return 'procedure';
+        return AppStrings.procedure;
       case DbObjectCategory.functions:
-        return 'function';
+        return AppStrings.function;
       case DbObjectCategory.triggers:
-        return 'trigger';
+        return AppStrings.trigger;
       case DbObjectCategory.extensions:
-        return 'extension';
+        return AppStrings.extension;
     }
   }
 
@@ -345,7 +347,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                   ),
                   const SizedBox(height: 12),
                   if (preview.columns.isEmpty)
-                    const Text('No hay filas para mostrar.')
+                    const Text(AppStrings.norows)
                   else
                     SizedBox(
                       height: 320,
@@ -508,7 +510,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
           TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Buscar tablas, vistas o procedimientos...',
+              hintText: AppStrings.search,
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: _searchController.text.isEmpty
                   ? const Icon(Icons.tune_rounded)
@@ -694,7 +696,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 child: FilledButton.tonalIcon(
                   onPressed: () => _showPreview(item),
                   icon: const Icon(Icons.table_chart_rounded),
-                  label: const Text('Ver datos'),
+                  label: const Text(AppStrings.viewData),
                 ),
               ),
               const SizedBox(width: 12),
@@ -702,7 +704,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 child: FilledButton.icon(
                   onPressed: () => _showInfoSnackBar(_defaultQuery(item)),
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Run Query'),
+                  label: const Text(AppStrings.runQuery),
                 ),
               ),
             ],
@@ -766,7 +768,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Consulta de ejemplo',
+                  AppStrings.exampleQuery,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -785,13 +787,13 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                     OutlinedButton.icon(
                       onPressed: () {},
                       icon: const Icon(Icons.cleaning_services_rounded),
-                      label: const Text('Limpiar'),
+                      label: const Text(AppStrings.clear),
                     ),
                     const SizedBox(width: 12),
                     FilledButton.icon(
                       onPressed: () => _showPreview(selected),
                       icon: const Icon(Icons.table_chart_rounded),
-                      label: const Text('Preview'),
+                      label: const Text(AppStrings.preview),
                     ),
                   ],
                 ),
@@ -825,14 +827,14 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             child: Row(
               children: [
                 Text(
-                  'Estructura',
+                  AppStrings.structure,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const Spacer(),
                 Text(
-                  '${item.columns.length} columnas',
+                  '${item.columns.length} ${AppStrings.columns}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),
@@ -845,7 +847,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'No hay columnas disponibles todavía.',
+                AppStrings.notStructure,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colors.onSurfaceVariant,
                 ),

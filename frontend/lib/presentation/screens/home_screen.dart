@@ -11,6 +11,8 @@ import 'oracle_main.dart';
 import 'postgresql_main.dart';
 import 'sqlserver_main.dart';
 
+import '../../core/strings/strings.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -407,15 +409,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                       itemBuilder: (context) => const [
                                         PopupMenuItem(
                                           value: 'connect',
-                                          child: Text('Connect'),
+                                          child: Text(AppStrings.connect),
                                         ),
                                         PopupMenuItem(
                                           value: 'edit',
-                                          child: Text('Edit'),
+                                          child: Text(AppStrings.edit),
                                         ),
                                         PopupMenuItem(
                                           value: 'delete',
-                                          child: Text('Delete'),
+                                          child: Text(AppStrings.delete),
                                         ),
                                       ],
                                       icon: const Icon(Icons.more_vert_rounded),
@@ -466,17 +468,17 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.storage_rounded),
             selectedIcon: Icon(Icons.storage_rounded),
-            label: 'Connections',
+            label: AppStrings.connections,
           ),
           NavigationDestination(
             icon: Icon(Icons.menu_rounded),
             selectedIcon: Icon(Icons.menu_rounded),
-            label: 'Queries',
+            label: AppStrings.queries,
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_rounded),
             selectedIcon: Icon(Icons.settings_rounded),
-            label: 'Settings',
+            label: AppStrings.settings,
           ),
         ],
       ),
