@@ -13,12 +13,12 @@ class PostgreSqlMain extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final databaseName = connection.database.trim().isNotEmpty ? connection.database : 'postgres';
+    final databaseName = connection.database.trim();
 
     return DbObjectExplorerShell(
       providerLabel: 'POSTGRESQL',
-      connectionSummary: '${connection.name}\n${connection.host} / $databaseName',
-      connection: connection.copyWith(database: databaseName),
+      connectionSummary: '${connection.name}\n${connection.host} / ${databaseName.isEmpty ? 'database required' : databaseName}',
+      connection: connection,
     );
   }
 }
