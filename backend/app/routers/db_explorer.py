@@ -7,13 +7,8 @@ from app.schemas.connections import (
     DbObjectListResponse,
     DbObjectStructureResponse,
     DbObjectPreviewResponse,
-    DbObjectDefinitionResponse,
-    DbObjectParametersResponse,
-    DbObjectDefaultQueryResponse,
     ObjectStructureRequest,
     ObjectPreviewRequest,
-    ObjectDefinitionRequest,
-    ObjectParametersRequest,
 )
 from app.services.db_explorer_service import DbExplorerError, DbExplorerService
 
@@ -47,12 +42,7 @@ def get_objects(payload: ConnectionTestRequest):
 @router.post("/object-structure", response_model=DbObjectStructureResponse)
 def get_object_structure(payload: ObjectStructureRequest):
     try:
-        return service.get_object_structure(
-            payload.connection,
-            payload.objectName,
-            payload.objectType,
-            payload.schemaName,
-        )
+        return service.get_object_structure(payload.connection, payload.objectName, payload.objectType)
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
@@ -67,52 +57,6 @@ def get_object_preview(payload: ObjectPreviewRequest):
             payload.objectName,
             payload.objectType,
             payload.limit,
-            payload.schemaName,
-        )
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/object-definition", response_model=DbObjectDefinitionResponse)
-def get_object_definition(payload: ObjectDefinitionRequest):
-    try:
-        return service.get_object_definition(
-            payload.connection,
-            payload.objectName,
-            payload.objectType,
-            payload.schemaName,
-        )
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/object-parameters", response_model=DbObjectParametersResponse)
-def get_object_parameters(payload: ObjectParametersRequest):
-    try:
-        return service.get_object_parameters(
-            payload.connection,
-            payload.objectName,
-            payload.objectType,
-            payload.schemaName,
-        )
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/object-default-query", response_model=DbObjectDefaultQueryResponse)
-def get_object_default_query(payload: ObjectDefinitionRequest):
-    try:
-        return service.get_object_default_query(
-            payload.connection,
-            payload.objectName,
-            payload.objectType,
-            payload.schemaName,
         )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
