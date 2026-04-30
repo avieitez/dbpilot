@@ -78,7 +78,7 @@ def execute_query(payload: QueryExecuteRequest):
             columns=columns,
             rows=rows,
             rowCount=len(rows),
-            message=f"{len(rows)} filas",
+            message=f"{len(rows)} rows",
         )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

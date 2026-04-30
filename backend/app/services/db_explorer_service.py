@@ -97,17 +97,13 @@ class DbExplorerService:
             raise DbExplorerError("SQL is required")
 
         first_word = clean_sql.split()[0].lower()
-        data_modification_statements = {
-            "insert", "update", "delete", "merge",
-            "create", "alter", "drop", "truncate",
-            "exec", "execute",
+        is_data_modification = first_word in {
+            "insert", "update", "delete", "merge", "create", "alter", "drop", "truncate", "exec", "execute"
         }
 
-        if first_word in data_modification_statements and not allow_data_modification:
+        if is_data_modification and not allow_data_modification:
             raise DbExplorerError("Data modification is disabled. Turn Safe Mode OFF to run this statement.")
 
-        if not clean_sql.lower().startswith("select"):
-            raise DbExplorerError("Por seguridad, por ahora solo se permiten consultas SELECT.")
 
         provider = payload.provider.lower().strip()
         if provider == "postgresql":

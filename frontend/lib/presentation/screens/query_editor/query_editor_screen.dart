@@ -259,7 +259,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     enableSuggestions: false,
                     style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45),
                     decoration: const InputDecoration(
-                      hintText: 'Escribe SQL aquí...',
+                      hintText: QeStrings.sqlHint,
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.fromLTRB(12, 14, 12, 14),
                     ),
@@ -280,11 +280,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
       child: Row(
         children: [
-          _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: 'FORMAT SQL', onTap: _formatSql),
+          _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: QeStrings.formatSql, onTap: _formatSql),
           const SizedBox(width: 8),
-          _ToolbarButton(icon: Icons.save_outlined, label: 'SAVE QUERY', onTap: () => _addMessage('Guardado local pendiente de integrar.')), 
+          _ToolbarButton(icon: Icons.save_outlined, label: QeStrings.saveQuery, onTap: () => _addMessage(QeStrings.localSavePending)), 
           const SizedBox(width: 8),
-          _ToolbarButton(icon: Icons.folder_open_rounded, label: 'LOAD QUERY', onTap: () => setState(() => _selectedTab = 3)),
+          _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: () => setState(() => _selectedTab = 3)),
 
         ],
       ),
@@ -473,7 +473,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
     final result = _result;
     if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: 'Sin resultados', message: 'Ejecuta una consulta para ver los datos aquí.');
-    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: 'Query ejecutada', message: result.message.isEmpty ? 'Comando ejecutado correctamente.' : result.message);
+    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
 
     return Column(
       children: [

@@ -89,15 +89,13 @@ class QeStrings {
   static const String noHistoryMessage = 'Queries executed during this session will be stored here.';
 
   static const String sqlErrorTitle = 'SQL execution error';
-
   static const String safeMode = 'Safe Mode';
-  static const String safeModeOnDescription = 'Only SELECT statements can run.';
-  static const String safeModeOffDescription = 'Data modification is enabled.';
+  static const String safeModeOnDescription = 'ON: only SELECT statements are allowed.';
+  static const String safeModeOffDescription = 'OFF: INSERT, UPDATE, DELETE and DDL statements are allowed.';
   static const String safeModeBlockedMessage = 'Data modification is disabled. Turn Safe Mode OFF to run this statement.';
   static const String executionCancelled = 'Execution cancelled.';
-  static const String confirmExecutionTitle = 'Confirm execution';
   static const String cancel = 'Cancel';
-
+  static const String confirmExecutionTitle = 'Confirm data modification';
   static String confirmExecutionMessage(String statement) =>
-      'You are about to run a $statement statement. This may modify database data. Continue?';
+      'You are about to execute a $statement statement. This may modify real data. Continue?';
 }

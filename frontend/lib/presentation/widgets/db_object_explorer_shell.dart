@@ -5,6 +5,7 @@ import '../../models/connection_request.dart';
 import '../../services/connection_api_service.dart';
 
 import '../../core/strings/strings.dart';
+import '../screens/query_editor/query_editor_screen.dart';
 
 enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
 
@@ -16,6 +17,9 @@ class DbExplorerObject {
     this.columns = const [],
     this.previewQuery,
     this.objectType,
+    this.schemaName,
+    this.defaultQuery,
+    this.isDemo = false,
   });
 
   final String name;
@@ -24,6 +28,16 @@ class DbExplorerObject {
   final List<DbColumnInfo> columns;
   final String? previewQuery;
   final String? objectType;
+  final String? schemaName;
+  final String? defaultQuery;
+  final bool isDemo;
+
+  String get qualifiedName =>
+      schemaName == null || schemaName!.trim().isEmpty
+          ? name
+          : '${schemaName!}.$name';
+
+  String get effectiveQuery => previewQuery ?? defaultQuery ?? '';
 
   DbExplorerObject copyWith({
     String? name,
@@ -32,6 +46,9 @@ class DbExplorerObject {
     List<DbColumnInfo>? columns,
     String? previewQuery,
     String? objectType,
+    String? schemaName,
+    String? defaultQuery,
+    bool? isDemo,
   }) {
     return DbExplorerObject(
       name: name ?? this.name,
@@ -40,9 +57,13 @@ class DbExplorerObject {
       columns: columns ?? this.columns,
       previewQuery: previewQuery ?? this.previewQuery,
       objectType: objectType ?? this.objectType,
+      schemaName: schemaName ?? this.schemaName,
+      defaultQuery: defaultQuery ?? this.defaultQuery,
+      isDemo: isDemo ?? this.isDemo,
     );
   }
 }
+
 
 class DbColumnInfo {
   const DbColumnInfo({
@@ -141,6 +162,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                       subtitle: item.subtitle,
                       category: _categoryFromObjectType(item.objectType),
                       objectType: item.objectType,
+                      schemaName: item.schemaName,
+                      defaultQuery: item.defaultQuery,
+                      previewQuery: item.defaultQuery,
+                      isDemo: item.isDemo,
                     ),
                   )
                   .toList(),
@@ -226,14 +251,42 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   String _defaultQuery(DbExplorerObject object) {
+    final existing = object.effectiveQuery.trim();
+    if (existing.isNotEmpty) return existing;
+
     final objectType = (object.objectType ?? '').toLowerCase();
+    final provider = widget.connection.provider.apiValue;
+
     if (objectType == 'procedure') {
-      return object.previewQuery ?? 'EXEC ${object.name};';
+      if (provider == 'postgresql') {
+        return 'SELECT *\nFROM ${_quotePostgresName(object)}();';
+      }
+      return 'EXEC ${_quoteSqlServerName(object)};';
     }
-    if (widget.connection.provider.apiValue == 'postgresql') {
-      return object.previewQuery ?? 'SELECT *\nFROM ${object.name}\nLIMIT 50;';
+
+    if (provider == 'postgresql') {
+      return 'SELECT *\nFROM ${_quotePostgresName(object)}\nLIMIT 50;';
     }
-    return object.previewQuery ?? 'SELECT TOP 50 *\nFROM [${object.name}];';
+
+    if (provider == 'oracle') {
+      return 'SELECT *\nFROM ${object.qualifiedName}\nFETCH FIRST 50 ROWS ONLY;';
+    }
+
+    return 'SELECT TOP 50 *\nFROM ${_quoteSqlServerName(object)};';
+  }
+
+  String _quotePostgresName(DbExplorerObject object) {
+    final schema = object.schemaName?.trim();
+    final name = object.name.replaceAll('"', '""');
+    if (schema == null || schema.isEmpty) return '"$name"';
+    return '"${schema.replaceAll('"', '""')}"."$name"';
+  }
+
+  String _quoteSqlServerName(DbExplorerObject object) {
+    final schema = (object.schemaName?.trim().isNotEmpty ?? false) ? object.schemaName!.trim() : 'dbo';
+    final safeSchema = schema.replaceAll('[', '').replaceAll(']', '');
+    final safeName = object.name.replaceAll('[', '').replaceAll(']', '');
+    return '[$safeSchema].[$safeName]';
   }
 
   Future<void> _loadStructure(DbExplorerObject object) async {
@@ -252,6 +305,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         widget.connection,
         object.name,
         object.objectType ?? _objectTypeFromCategory(object.category),
+        schemaName: object.schemaName,
       );
 
       final updated = object.copyWith(
@@ -288,7 +342,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         category: group.category,
         label: group.label,
         items: group.items
-            .map((item) => item.name == updated.name ? updated : item)
+            .map((item) => item.name == updated.name && item.schemaName == updated.schemaName ? updated : item)
             .toList(),
       );
     }).toList();
@@ -314,7 +368,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   Future<void> _showPreview(DbExplorerObject object) async {
     if (!widget.loadFromBackend) {
-      _showInfoSnackBar('Preview no disponible todavía para Oracle.');
+      _showInfoSnackBar('Preview is not available yet for Oracle.');
       return;
     }
 
@@ -323,6 +377,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         widget.connection,
         object.name,
         object.objectType ?? _objectTypeFromCategory(object.category),
+        schemaName: object.schemaName,
       );
 
       if (!mounted) return;
@@ -390,6 +445,23 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+
+  void _openQueryEditor(DbExplorerObject object) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QueryEditorScreen(
+          connection: widget.connection,
+          providerLabel: widget.providerLabel,
+          connectionSummary: widget.connectionSummary,
+          initialSql: _defaultQuery(object),
+          objectName: object.name,
+          objectType: object.objectType ?? _objectTypeFromCategory(object.category),
+          schemaName: object.schemaName,
+        ),
+      ),
+    );
+  }
+
 
   @override
   void dispose() {
@@ -702,8 +774,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _showInfoSnackBar(_defaultQuery(item)),
-                  icon: const Icon(Icons.play_arrow_rounded),
+                  onPressed: () => _openQueryEditor(item),
+                  icon: const Icon(Icons.open_in_new_rounded),
                   label: const Text(AppStrings.runQuery),
                 ),
               ),
@@ -723,7 +795,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     if (selected == null) {
       return Center(
         child: Text(
-          'Selecciona un objeto para ver estructura o query.',
+          'Select an object to view its structure or query.',
           style: theme.textTheme.titleMedium?.copyWith(
             color: colors.onSurfaceVariant,
           ),
