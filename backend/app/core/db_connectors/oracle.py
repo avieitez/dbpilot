@@ -87,3 +87,7 @@ def get_oracle_object_parameters(payload, object_name: str, object_type: str, sc
     return [
         {"name": "P_ID", "dataType": "NUMBER", "direction": "IN", "hasDefault": False},
     ]
+
+
+def execute_oracle_query(payload, sql: str, limit: int):
+    return ["message"], [["Oracle connector is currently in DEMO MODE. Query was not executed."]]

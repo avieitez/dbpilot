@@ -6,6 +6,8 @@ import '../../services/connection_api_service.dart';
 
 import '../../core/strings/strings.dart';
 
+import '../screens/query_editor/query_editor_screen.dart';
+
 enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
 
 class DbExplorerObject {
@@ -433,40 +435,18 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   void _showQuerySheet(DbExplorerObject object) {
-    final sql = _defaultQuery(object);
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${object.qualifiedName} · Query', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                SelectableText(sql, style: theme.textTheme.bodyLarge?.copyWith(fontFamily: 'monospace', height: 1.5)),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    if ((object.objectType ?? '').toLowerCase() == 'procedure') {
-                      _showInfoSnackBar('Ejecución de procedures pendiente de habilitar. Bien, porque ejecutar a ciegas era una locura.');
-                      return;
-                    }
-                    _showPreview(object);
-                  },
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Run safe preview'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QueryEditorScreen(
+          connection: widget.connection,
+          providerLabel: widget.providerLabel,
+          connectionSummary: widget.connectionSummary,
+          initialSql: _defaultQuery(object),
+          objectName: object.name,
+          objectType: object.objectType ?? _objectTypeFromCategory(object.category),
+          schemaName: object.schemaName,
+        ),
+      ),
     );
   }
 

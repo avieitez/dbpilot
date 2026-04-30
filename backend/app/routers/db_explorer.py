@@ -42,7 +42,12 @@ def get_objects(payload: ConnectionTestRequest):
 @router.post("/object-structure", response_model=DbObjectStructureResponse)
 def get_object_structure(payload: ObjectStructureRequest):
     try:
-        return service.get_object_structure(payload.connection, payload.objectName, payload.objectType)
+        return service.get_object_structure(
+            payload.connection,
+            payload.objectName,
+            payload.objectType,
+            payload.schemaName,
+        )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
@@ -57,6 +62,7 @@ def get_object_preview(payload: ObjectPreviewRequest):
             payload.objectName,
             payload.objectType,
             payload.limit,
+            payload.schemaName,
         )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

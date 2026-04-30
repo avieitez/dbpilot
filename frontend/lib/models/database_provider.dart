@@ -6,17 +6,7 @@ enum DatabaseProvider {
 }
 
 extension DatabaseProviderX on DatabaseProvider {
-  String get label {
-    switch (this) {
-      case DatabaseProvider.postgresql:
-        return 'PostgreSQL';
-      case DatabaseProvider.sqlServer:
-        return 'SQL Server';
-      case DatabaseProvider.oracle:
-        return 'Oracle';
-    }
-  }
-
+  /// Para backend (clave técnica)
   String get apiValue {
     switch (this) {
       case DatabaseProvider.postgresql:
@@ -25,6 +15,18 @@ extension DatabaseProviderX on DatabaseProvider {
         return 'sqlserver';
       case DatabaseProvider.oracle:
         return 'oracle';
+    }
+  }
+
+  /// Para UI (bonito)
+  String get label {
+    switch (this) {
+      case DatabaseProvider.postgresql:
+        return 'PostgreSQL';
+      case DatabaseProvider.sqlServer:
+        return 'SQL Server';
+      case DatabaseProvider.oracle:
+        return 'Oracle';
     }
   }
 
