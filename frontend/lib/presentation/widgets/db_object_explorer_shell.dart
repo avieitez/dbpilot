@@ -6,8 +6,6 @@ import '../../services/connection_api_service.dart';
 
 import '../../core/strings/strings.dart';
 
-import '../screens/query_editor/query_editor_screen.dart';
-
 enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
 
 class DbExplorerObject {
@@ -18,8 +16,6 @@ class DbExplorerObject {
     this.columns = const [],
     this.previewQuery,
     this.objectType,
-    this.schemaName,
-    this.isDemo = false,
   });
 
   final String name;
@@ -28,14 +24,6 @@ class DbExplorerObject {
   final List<DbColumnInfo> columns;
   final String? previewQuery;
   final String? objectType;
-  final String? schemaName;
-  final bool isDemo;
-
-  String get qualifiedName {
-    final schema = schemaName?.trim();
-    if (schema == null || schema.isEmpty) return name;
-    return '$schema.$name';
-  }
 
   DbExplorerObject copyWith({
     String? name,
@@ -44,8 +32,6 @@ class DbExplorerObject {
     List<DbColumnInfo>? columns,
     String? previewQuery,
     String? objectType,
-    String? schemaName,
-    bool? isDemo,
   }) {
     return DbExplorerObject(
       name: name ?? this.name,
@@ -54,8 +40,6 @@ class DbExplorerObject {
       columns: columns ?? this.columns,
       previewQuery: previewQuery ?? this.previewQuery,
       objectType: objectType ?? this.objectType,
-      schemaName: schemaName ?? this.schemaName,
-      isDemo: isDemo ?? this.isDemo,
     );
   }
 }
@@ -125,7 +109,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     return items
         .where((item) =>
             item.name.toLowerCase().contains(term) ||
-            item.qualifiedName.toLowerCase().contains(term) ||
             item.subtitle.toLowerCase().contains(term))
         .toList();
   }
@@ -158,9 +141,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                       subtitle: item.subtitle,
                       category: _categoryFromObjectType(item.objectType),
                       objectType: item.objectType,
-                      schemaName: item.schemaName,
-                      previewQuery: item.defaultQuery,
-                      isDemo: item.isDemo,
                     ),
                   )
                   .toList(),
@@ -247,16 +227,13 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   String _defaultQuery(DbExplorerObject object) {
     final objectType = (object.objectType ?? '').toLowerCase();
-    if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) {
-      return object.previewQuery!;
+    if (objectType == 'procedure') {
+      return object.previewQuery ?? 'EXEC ${object.name};';
     }
-    final schema = object.schemaName?.trim();
-    final qualified = schema == null || schema.isEmpty ? object.name : '$schema.${object.name}';
-    if (objectType == 'procedure') return 'EXEC $qualified;';
     if (widget.connection.provider.apiValue == 'postgresql') {
-      return 'SELECT *\nFROM $qualified\nLIMIT 50;';
+      return object.previewQuery ?? 'SELECT *\nFROM ${object.name}\nLIMIT 50;';
     }
-    return 'SELECT TOP 50 *\nFROM [$qualified];';
+    return object.previewQuery ?? 'SELECT TOP 50 *\nFROM [${object.name}];';
   }
 
   Future<void> _loadStructure(DbExplorerObject object) async {
@@ -275,7 +252,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         widget.connection,
         object.name,
         object.objectType ?? _objectTypeFromCategory(object.category),
-        schemaName: object.schemaName,
       );
 
       final updated = object.copyWith(
@@ -312,15 +288,11 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         category: group.category,
         label: group.label,
         items: group.items
-            .map((item) => _sameObject(item, updated) ? updated : item)
+            .map((item) => item.name == updated.name ? updated : item)
             .toList(),
       );
     }).toList();
     _categories = newCategories;
-  }
-
-  bool _sameObject(DbExplorerObject a, DbExplorerObject b) {
-    return a.name == b.name && a.schemaName == b.schemaName && a.objectType == b.objectType;
   }
 
   String _objectTypeFromCategory(DbObjectCategory category) {
@@ -351,7 +323,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         widget.connection,
         object.name,
         object.objectType ?? _objectTypeFromCategory(object.category),
-        schemaName: object.schemaName,
       );
 
       if (!mounted) return;
@@ -369,7 +340,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${object.qualifiedName} · Preview',
+                    '${object.name} · Preview',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -418,98 +389,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   void _showInfoSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-
-
-  String _primaryActionLabel(DbExplorerObject object) {
-    final type = (object.objectType ?? '').toLowerCase();
-    if (type == 'procedure' || type == 'function') return 'Params';
-    return AppStrings.viewData;
-  }
-
-  String _metadataActionLabel(DbExplorerObject object) {
-    final type = (object.objectType ?? '').toLowerCase();
-    if (type == 'table') return 'Schema';
-    return 'SQL';
-  }
-
-  void _showQuerySheet(DbExplorerObject object) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => QueryEditorScreen(
-          connection: widget.connection,
-          providerLabel: widget.providerLabel,
-          connectionSummary: widget.connectionSummary,
-          initialSql: _defaultQuery(object),
-          objectName: object.name,
-          objectType: object.objectType ?? _objectTypeFromCategory(object.category),
-          schemaName: object.schemaName,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showObjectMetadata(DbExplorerObject object) async {
-    try {
-      final type = (object.objectType ?? '').toLowerCase();
-      if (type == 'procedure' || type == 'function') {
-        final params = await _apiService.getObjectParameters(
-          widget.connection,
-          object.name,
-          object.objectType ?? _objectTypeFromCategory(object.category),
-          schemaName: object.schemaName,
-        );
-        if (!mounted) return;
-        _showTextSheet(
-          '${object.qualifiedName} · Parameters',
-          params.parameters.isEmpty
-              ? 'No parameters detected.'
-              : params.parameters.map((p) => '${p.name} ${p.dataType}${p.direction == null ? '' : ' · ${p.direction}'}').join('\n'),
-        );
-        return;
-      }
-
-      final def = await _apiService.getObjectDefinition(
-        widget.connection,
-        object.name,
-        object.objectType ?? _objectTypeFromCategory(object.category),
-        schemaName: object.schemaName,
-      );
-      if (!mounted) return;
-      _showTextSheet('${object.qualifiedName} · Definition', def.definition.isEmpty ? 'No definition available.' : def.definition);
-    } catch (error) {
-      _showInfoSnackBar(error.toString().replaceFirst('Exception: ', ''));
-    }
-  }
-
-  void _showTextSheet(String title, String content) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 420),
-                  child: SingleChildScrollView(
-                    child: SelectableText(content, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.5)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -619,34 +498,12 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 color: colors.outlineVariant.withOpacity(0.45),
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (widget.connection.provider.apiValue == 'oracle') ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: colors.tertiaryContainer.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'Oracle demo mode',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: colors.onTertiaryContainer,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                Text(
-                  widget.connectionSummary,
+            child: Text(
+              widget.connectionSummary,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colors.onSurfaceVariant,
-                    height: 1.4,
-                  ),
-                ),
-              ],
+                height: 1.4,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -683,7 +540,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             onSelected: (_) => setState(() {
               _activeCategory = group.category;
               _selectedObject = group.items.isNotEmpty ? group.items.first : null;
-              if (_selectedObject != null) _loadStructure(_selectedObject!);
+              if (_selectedObject != null) {
+                _loadStructure(_selectedObject!);
+              }
             }),
             avatar: Icon(
               _iconForCategory(group.category),
@@ -753,7 +612,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  item.qualifiedName,
+                                  item.name,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -813,7 +672,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
           child: Icon(_iconForCategory(item.category)),
         ),
         title: Text(
-          item.qualifiedName,
+          item.name,
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w800,
           ),
@@ -829,7 +688,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          _buildStructureTable(theme, colors, panelColor, _sameObject(item, _selectedObject ?? item) ? (_selectedObject ?? item) : item),
+          _buildStructureTable(theme, colors, panelColor, item.name == _selectedObject?.name ? (_selectedObject ?? item) : item),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -837,13 +696,13 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 child: FilledButton.tonalIcon(
                   onPressed: () => _showPreview(item),
                   icon: const Icon(Icons.table_chart_rounded),
-                  label: Text(_primaryActionLabel(item)),
+                  label: const Text(AppStrings.viewData),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _showQuerySheet(item),
+                  onPressed: () => _showInfoSnackBar(_defaultQuery(item)),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text(AppStrings.runQuery),
                 ),
@@ -878,7 +737,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            selected.qualifiedName,
+            selected.name,
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w800,
             ),
@@ -926,9 +785,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 Row(
                   children: [
                     OutlinedButton.icon(
-                      onPressed: () => _showObjectMetadata(selected),
-                      icon: const Icon(Icons.code_rounded),
-                      label: Text(_metadataActionLabel(selected)),
+                      onPressed: () {},
+                      icon: const Icon(Icons.cleaning_services_rounded),
+                      label: const Text(AppStrings.clear),
                     ),
                     const SizedBox(width: 12),
                     FilledButton.icon(
