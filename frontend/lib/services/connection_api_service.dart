@@ -26,17 +26,11 @@ class DbExplorerObjectItem {
   final String name;
   final String subtitle;
   final String objectType;
-  final String? schemaName;
-  final String? defaultQuery;
-  final bool isDemo;
 
   DbExplorerObjectItem({
     required this.name,
     required this.subtitle,
     required this.objectType,
-    this.schemaName,
-    this.defaultQuery,
-    this.isDemo = false,
   });
 
   factory DbExplorerObjectItem.fromJson(Map<String, dynamic> json) {
@@ -44,9 +38,6 @@ class DbExplorerObjectItem {
       name: (json['name'] ?? '').toString(),
       subtitle: (json['subtitle'] ?? '').toString(),
       objectType: (json['objectType'] ?? '').toString(),
-      schemaName: json['schemaName']?.toString(),
-      defaultQuery: json['defaultQuery']?.toString(),
-      isDemo: json['isDemo'] == true,
     );
   }
 }
@@ -100,14 +91,12 @@ class DbObjectStructureResult {
   final String provider;
   final String objectName;
   final String objectType;
-  final String? schemaName;
   final List<DbColumnInfo> columns;
 
   DbObjectStructureResult({
     required this.provider,
     required this.objectName,
     required this.objectType,
-    this.schemaName,
     required this.columns,
   });
 
@@ -116,7 +105,6 @@ class DbObjectStructureResult {
       provider: (json['provider'] ?? '').toString(),
       objectName: (json['objectName'] ?? '').toString(),
       objectType: (json['objectType'] ?? '').toString(),
-      schemaName: json['schemaName']?.toString(),
       columns: ((json['columns'] ?? []) as List)
           .map((e) => DbColumnInfo.fromJson(Map<String, dynamic>.from(e)))
           .toList(),
@@ -128,7 +116,6 @@ class DbObjectPreviewResult {
   final String provider;
   final String objectName;
   final String objectType;
-  final String? schemaName;
   final List<String> columns;
   final List<List<dynamic>> rows;
   final int rowCount;
@@ -137,7 +124,6 @@ class DbObjectPreviewResult {
     required this.provider,
     required this.objectName,
     required this.objectType,
-    this.schemaName,
     required this.columns,
     required this.rows,
     required this.rowCount,
@@ -148,7 +134,6 @@ class DbObjectPreviewResult {
       provider: (json['provider'] ?? '').toString(),
       objectName: (json['objectName'] ?? '').toString(),
       objectType: (json['objectType'] ?? '').toString(),
-      schemaName: json['schemaName']?.toString(),
       columns: ((json['columns'] ?? []) as List).map((e) => e.toString()).toList(),
       rows: ((json['rows'] ?? []) as List)
           .map((row) => List<dynamic>.from(row as List))
@@ -158,98 +143,17 @@ class DbObjectPreviewResult {
   }
 }
 
-class DbObjectDefinitionResult {
-  final String provider;
-  final String objectName;
-  final String objectType;
-  final String? schemaName;
-  final String definition;
-
-  DbObjectDefinitionResult({
-    required this.provider,
-    required this.objectName,
-    required this.objectType,
-    this.schemaName,
-    required this.definition,
-  });
-
-  factory DbObjectDefinitionResult.fromJson(Map<String, dynamic> json) {
-    return DbObjectDefinitionResult(
-      provider: (json['provider'] ?? '').toString(),
-      objectName: (json['objectName'] ?? '').toString(),
-      objectType: (json['objectType'] ?? '').toString(),
-      schemaName: json['schemaName']?.toString(),
-      definition: (json['definition'] ?? '').toString(),
-    );
-  }
-}
-
-class DbParameterInfo {
-  final String name;
-  final String dataType;
-  final String? direction;
-  final bool? hasDefault;
-
-  DbParameterInfo({
-    required this.name,
-    required this.dataType,
-    this.direction,
-    this.hasDefault,
-  });
-
-  factory DbParameterInfo.fromJson(Map<String, dynamic> json) {
-    return DbParameterInfo(
-      name: (json['name'] ?? '').toString(),
-      dataType: (json['dataType'] ?? '').toString(),
-      direction: json['direction']?.toString(),
-      hasDefault: json['hasDefault'] is bool ? json['hasDefault'] as bool : null,
-    );
-  }
-}
-
-class DbObjectParametersResult {
-  final String provider;
-  final String objectName;
-  final String objectType;
-  final String? schemaName;
-  final List<DbParameterInfo> parameters;
-
-  DbObjectParametersResult({
-    required this.provider,
-    required this.objectName,
-    required this.objectType,
-    this.schemaName,
-    required this.parameters,
-  });
-
-  factory DbObjectParametersResult.fromJson(Map<String, dynamic> json) {
-    return DbObjectParametersResult(
-      provider: (json['provider'] ?? '').toString(),
-      objectName: (json['objectName'] ?? '').toString(),
-      objectType: (json['objectType'] ?? '').toString(),
-      schemaName: json['schemaName']?.toString(),
-      parameters: ((json['parameters'] ?? []) as List)
-          .map((e) => DbParameterInfo.fromJson(Map<String, dynamic>.from(e)))
-          .toList(),
-    );
-  }
-}
-
 class QueryExecuteResult {
   final List<String> columns;
   final List<List<dynamic>> rows;
   final int rowCount;
   final String message;
-  final int rowsAffected;
-  final String statementType;
 
   QueryExecuteResult({
     required this.columns,
     required this.rows,
     required this.rowCount,
     required this.message,
-    this.rowsAffected = 0,
-    this.statementType = '',
   });
 
   factory QueryExecuteResult.fromJson(Map<String, dynamic> json) {
@@ -260,8 +164,6 @@ class QueryExecuteResult {
           .toList(),
       rowCount: (json['rowCount'] ?? 0) as int,
       message: (json['message'] ?? '').toString(),
-      rowsAffected: (json['rowsAffected'] ?? 0) as int,
-      statementType: (json['statementType'] ?? '').toString(),
     );
   }
 }
@@ -289,13 +191,22 @@ class ConnectionApiService {
 
   Future<List<DbExplorerGroup>> getDbObjects(ConnectionRequest request) async {
     final uri = Uri.parse('$_baseUrl/api/v1/objects');
-    final response = await _post(uri, request.toJson());
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
     }
 
-    final data = _decode(response);
+    _decode(response);
     return ((data['groups'] ?? []) as List)
         .map((e) => DbExplorerGroup.fromJson(Map<String, dynamic>.from(e)))
         .toList();
@@ -304,16 +215,23 @@ class ConnectionApiService {
   Future<DbObjectStructureResult> getObjectStructure(
     ConnectionRequest request,
     String objectName,
-    String objectType, {
-    String? schemaName,
-  }) async {
+    String objectType,
+  ) async {
     final uri = Uri.parse('$_baseUrl/api/v1/object-structure');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-      'schemaName': schemaName,
-    });
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'objectName': objectName,
+        'objectType': objectType,
+      }),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
@@ -326,80 +244,24 @@ class ConnectionApiService {
     ConnectionRequest request,
     String objectName,
     String objectType, {
-    String? schemaName,
     int limit = 50,
   }) async {
     final uri = Uri.parse('$_baseUrl/api/v1/object-preview');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-      'schemaName': schemaName,
-      'limit': limit,
-    });
 
-    if (response.statusCode != 200) {
-      throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
-    }
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'objectName': objectName,
+        'objectType': objectType,
+        'limit': limit,
+      }),
+    );
 
-    return QueryExecuteResult.fromJson(_decode(response));
-  }
-
-  Future<DbObjectDefinitionResult> getObjectDefinition(
-    ConnectionRequest request,
-    String objectName,
-    String objectType, {
-    String? schemaName,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/object-definition');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-      'schemaName': schemaName,
-    });
-
-    if (response.statusCode != 200) {
-      throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
-    }
-
-    return DbObjectDefinitionResult.fromJson(_decode(response));
-  }
-
-  Future<DbObjectParametersResult> getObjectParameters(
-    ConnectionRequest request,
-    String objectName,
-    String objectType, {
-    String? schemaName,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/object-parameters');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'objectName': objectName,
-      'objectType': objectType,
-      'schemaName': schemaName,
-    });
-
-    if (response.statusCode != 200) {
-      throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
-    }
-
-    return DbObjectParametersResult.fromJson(_decode(response));
-  }
-
-  Future<QueryExecuteResult> executeQuery(
-    ConnectionRequest request,
-    String sql, {
-    int limit = 100,
-    bool allowDataModification = false,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/execute-query');
-    final response = await _post(uri, {
-      'connection': request.toJson(),
-      'sql': sql,
-      'limit': limit,
-      'allowDataModification': allowDataModification,
-    });
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
 
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
@@ -422,12 +284,39 @@ class ConnectionApiService {
   }
 
   String _errorMessage(http.Response response) {
-    try {
-      final data = _decode(response);
-      return (data['detail'] ?? data['message'] ?? response.body).toString();
-    } catch (_) {
-      return response.body;
+    final data = _decode(response);
+    return (data['detail'] ?? data['message'] ?? response.body).toString();
+  }
+
+  Future<QueryExecuteResult> executeQuery(
+    ConnectionRequest request,
+    String sql, {
+    int limit = 100,
+    bool allowDataModification = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/v1/execute-query');
+
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'connection': request.toJson(),
+        'sql': sql,
+        'limit': limit,
+        'allowDataModification': allowDataModification,
+      }),
+    );
+
+    final Map<String, dynamic> data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    if (response.statusCode != 200) {
+      final message = data['detail'] ?? data['message'] ?? response.body;
+      throw Exception('Error ${response.statusCode}: $message');
     }
+
+    return QueryExecuteResult.fromJson(data);
   }
 
   void dispose() {

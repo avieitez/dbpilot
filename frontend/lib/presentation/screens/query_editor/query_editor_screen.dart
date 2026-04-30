@@ -4,6 +4,7 @@ import 'package:dbpilot/models/database_provider.dart';
 import 'package:flutter/material.dart';
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
+import '../../../core/strings/strings.dart';
 
 class QueryEditorScreen extends StatefulWidget {
   const QueryEditorScreen({
@@ -37,6 +38,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   int _limit = 100;
   int _timeoutSeconds = 30;
   bool _transactionEnabled = false;
+  bool _safeMode = true;
   bool _executing = false;
   Duration? _lastDuration;
   String? _errorMessage;
@@ -57,33 +59,50 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     final provider = widget.connection.provider.apiValue;
     final objectName = widget.objectName?.trim();
-    final objectType = (widget.objectType ?? 'table').toLowerCase();
     final schemaName = widget.schemaName?.trim();
-    final qualified = schemaName == null || schemaName.isEmpty ? objectName : '$schemaName.$objectName';
 
     if (objectName == null || objectName.isEmpty) {
-      if (provider == 'postgresql') return 'SELECT *\nFROM schema_name.table_name\nLIMIT 100;';
-      if (provider == 'oracle') return 'SELECT *\nFROM TABLE_NAME\nFETCH FIRST 100 ROWS ONLY;';
-      return 'SELECT TOP 100 *\nFROM dbo.TableName;';
+      return '';
     }
 
+    final qualifiedName = (schemaName != null && schemaName.isNotEmpty)
+        ? '$schemaName.$objectName'
+        : objectName;
+
     if (provider == 'postgresql') {
-      if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
-      return 'SELECT *\nFROM $qualified\nLIMIT 100;';
+      return 'SELECT *\nFROM $qualifiedName\nLIMIT 50;';
     }
+
+    if (provider == 'sqlserver' || provider == 'sql_server' || provider == 'mssql') {
+      return 'SELECT TOP 50 *\nFROM $qualifiedName;';
+    }
+
     if (provider == 'oracle') {
-      if (objectType == 'procedure') return 'BEGIN\n  $qualified;\nEND;';
-      return 'SELECT *\nFROM $qualified\nFETCH FIRST 100 ROWS ONLY;';
+      return 'SELECT *\nFROM $qualifiedName\nWHERE ROWNUM <= 50;';
     }
-    if (objectType == 'procedure') return 'EXEC $qualified;';
-    return 'SELECT TOP 100 *\nFROM $qualified;';
+
+    return 'SELECT *\nFROM $qualifiedName;';
   }
 
   Future<void> _execute() async {
     final sql = _sqlController.text.trim();
     if (sql.isEmpty) {
-      _addMessage('No hay SQL para ejecutar. El editor no es adivino, todavía.');
+      _addMessage(QeStrings.noSqlToRun);
       return;
+    }
+
+    if (_safeMode && _isDataModificationStatement(sql)) {
+      setState(() => _selectedTab = 2);
+      _addMessage(QeStrings.safeModeBlockedMessage);
+      return;
+    }
+
+    if (!_safeMode && _isDangerousStatement(sql)) {
+      final confirmed = await _confirmDataModification(sql);
+      if (!confirmed) {
+        _addMessage(QeStrings.executionCancelled);
+        return;
+      }
     }
 
     setState(() {
@@ -94,7 +113,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     final watch = Stopwatch()..start();
     try {
-      final result = await _apiService.executeQuery(widget.connection, sql, limit: _limit);
+      final result = await _apiService.executeQuery(
+        widget.connection,
+        sql,
+        limit: _limit,
+        allowDataModification: !_safeMode,
+      );
       watch.stop();
       if (!mounted) return;
       setState(() {
@@ -104,7 +128,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         _history.insert(0, _HistoryEntry(sql: sql, dateTime: DateTime.now(), message: result.message));
         if (_history.length > 50) _history.removeLast();
       });
-      _addMessage('Query ejecutada en ${watch.elapsedMilliseconds} ms. Filas: ${result.rowCount}.');
+      _addMessage(QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount));
     } catch (error) {
       watch.stop();
       if (!mounted) return;
@@ -145,12 +169,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       sql = sql.replaceAll(RegExp(key, caseSensitive: false), value);
     });
     _sqlController.text = sql.trim();
-    _addMessage('SQL formateado de forma básica. No es magia negra, pero ayuda.');
+    _addMessage(QeStrings.sqlFormatted);
   }
 
   void _clearEditor() {
     _sqlController.clear();
-    _addMessage('Editor limpiado. Otra oportunidad para romper producción con estilo.');
+    _addMessage(QeStrings.editorCleared);
   }
 
   void _loadHistory(_HistoryEntry entry) {
@@ -261,8 +285,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           _ToolbarButton(icon: Icons.save_outlined, label: 'SAVE QUERY', onTap: () => _addMessage('Guardado local pendiente de integrar.')), 
           const SizedBox(width: 8),
           _ToolbarButton(icon: Icons.folder_open_rounded, label: 'LOAD QUERY', onTap: () => setState(() => _selectedTab = 3)),
-          const SizedBox(width: 8),
-          _ToolbarButton(icon: Icons.play_arrow_rounded, label: 'RUN', onTap: _execute, filled: true),
+
         ],
       ),
     );
@@ -298,47 +321,151 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildBottomBar(ThemeData theme, ColorScheme colors) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border(top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
-      ),
-      child: Row(
-        children: [
-          _DropDownBox<int>(
-            label: 'Limit',
-            value: _limit,
-            values: const [50, 100, 250, 500],
-            onChanged: (v) => setState(() => _limit = v),
-          ),
-          const SizedBox(width: 8),
-          _DropDownBox<int>(
-            label: 'Timeout',
-            value: _timeoutSeconds,
-            values: const [10, 30, 60],
-            suffix: 's',
-            onChanged: (v) => setState(() => _timeoutSeconds = v),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: FilterChip(
-              selected: _transactionEnabled,
-              label: const Text('Transaction'),
-              onSelected: (v) => setState(() => _transactionEnabled = v),
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          border: Border(top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: _safeMode
+                    ? colors.surfaceContainerHighest.withOpacity(0.45)
+                    : colors.errorContainer.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _safeMode
+                      ? colors.outlineVariant.withOpacity(0.5)
+                      : colors.error.withOpacity(0.6),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded,
+                    color: _safeMode ? colors.primary : colors.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(QeStrings.safeMode, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(
+                          _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: _safeMode,
+                    onChanged: (value) => setState(() => _safeMode = value),
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _DropDownBox<int>(
+                    label: QeStrings.limit,
+                    value: _limit,
+                    values: const [50, 100, 250, 500],
+                    onChanged: (v) => setState(() => _limit = v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _DropDownBox<int>(
+                    label: QeStrings.timeout,
+                    value: _timeoutSeconds,
+                    values: const [10, 30, 60],
+                    suffix: 's',
+                    onChanged: (v) => setState(() => _timeoutSeconds = v),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _executing ? null : _execute,
+                icon: _executing
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.play_arrow_rounded),
+                label: const Text(QeStrings.executeQuery),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isDataModificationStatement(String sql) {
+    final firstWord = _firstSqlWord(sql);
+    return const {
+      'insert',
+      'update',
+      'delete',
+      'merge',
+      'create',
+      'alter',
+      'drop',
+      'truncate',
+      'exec',
+      'execute',
+    }.contains(firstWord);
+  }
+
+  bool _isDangerousStatement(String sql) {
+    final firstWord = _firstSqlWord(sql);
+    return const {'insert', 'update', 'delete', 'merge', 'drop', 'truncate', 'alter', 'create', 'exec', 'execute'}
+        .contains(firstWord);
+  }
+
+  String _firstSqlWord(String sql) {
+    var cleaned = sql.trimLeft();
+    while (cleaned.startsWith('--')) {
+      final end = cleaned.indexOf('\n');
+      if (end < 0) return '';
+      cleaned = cleaned.substring(end + 1).trimLeft();
+    }
+    final match = RegExp(r'^[a-zA-Z]+').firstMatch(cleaned);
+    return match?.group(0)?.toLowerCase() ?? '';
+  }
+
+  Future<bool> _confirmDataModification(String sql) async {
+    final firstWord = _firstSqlWord(sql).toUpperCase();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(QeStrings.confirmExecutionTitle),
+        content: Text(QeStrings.confirmExecutionMessage(firstWord)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text(QeStrings.cancel),
           ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: _executing ? null : _execute,
-            icon: _executing
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.play_arrow_rounded),
-            label: const Text('Ejecutar'),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text(QeStrings.executeQuery),
           ),
         ],
       ),
     );
+    return result == true;
   }
 
   Widget _buildResults(ThemeData theme, ColorScheme colors) {
@@ -574,7 +701,7 @@ class _ErrorPanel extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline_rounded, size: 46),
             const SizedBox(height: 12),
-            Text('Error ejecutando SQL', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            Text(QeStrings.sqlErrorTitle, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             SelectableText(message, textAlign: TextAlign.center),
           ],

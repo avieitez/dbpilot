@@ -7,12 +7,8 @@ from app.schemas.connections import (
     DbObjectListResponse,
     DbObjectStructureResponse,
     DbObjectPreviewResponse,
-    DbObjectDefinitionResponse,
-    DbObjectParametersResponse,
     ObjectStructureRequest,
     ObjectPreviewRequest,
-    ObjectDefinitionRequest,
-    ObjectParametersRequest,
 )
 from app.services.db_explorer_service import DbExplorerError, DbExplorerService
 
@@ -31,8 +27,6 @@ class QueryExecuteResponse(BaseModel):
     columns: list[str]
     rows: list[list[Any]]
     rowCount: int
-    rowsAffected: int = 0
-    statementType: str = ""
     message: str
 
 
@@ -49,7 +43,7 @@ def get_objects(payload: ConnectionTestRequest):
 @router.post("/object-structure", response_model=DbObjectStructureResponse)
 def get_object_structure(payload: ObjectStructureRequest):
     try:
-        return service.get_object_structure(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
+        return service.get_object_structure(payload.connection, payload.objectName, payload.objectType)
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
@@ -59,27 +53,12 @@ def get_object_structure(payload: ObjectStructureRequest):
 @router.post("/object-preview", response_model=DbObjectPreviewResponse)
 def get_object_preview(payload: ObjectPreviewRequest):
     try:
-        return service.get_object_preview(payload.connection, payload.objectName, payload.objectType, payload.limit, payload.schemaName)
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/object-definition", response_model=DbObjectDefinitionResponse)
-def get_object_definition(payload: ObjectDefinitionRequest):
-    try:
-        return service.get_object_definition(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/object-parameters", response_model=DbObjectParametersResponse)
-def get_object_parameters(payload: ObjectParametersRequest):
-    try:
-        return service.get_object_parameters(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
+        return service.get_object_preview(
+            payload.connection,
+            payload.objectName,
+            payload.objectType,
+            payload.limit,
+        )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
@@ -89,24 +68,17 @@ def get_object_parameters(payload: ObjectParametersRequest):
 @router.post("/execute-query", response_model=QueryExecuteResponse)
 def execute_query(payload: QueryExecuteRequest):
     try:
-        columns, rows, rows_affected, statement_type = service.execute_query(
+        columns, rows = service.execute_query(
             payload.connection,
             payload.sql,
             payload.limit,
             payload.allowDataModification,
         )
-        message = (
-            f"{len(rows)} rows"
-            if columns and not (len(columns) == 1 and columns[0] == "message")
-            else f"Query executed successfully. Rows affected: {rows_affected}"
-        )
         return QueryExecuteResponse(
             columns=columns,
             rows=rows,
             rowCount=len(rows),
-            rowsAffected=rows_affected,
-            statementType=statement_type,
-            message=message,
+            message=f"{len(rows)} filas",
         )
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
