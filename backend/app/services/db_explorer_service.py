@@ -3,27 +3,66 @@ from app.schemas.connections import (
     DbObjectListResponse,
     DbObjectStructureResponse,
     DbObjectPreviewResponse,
+    DbObjectDefinitionResponse,
+    DbObjectParametersResponse,
 )
 from app.core.db_connectors.postgres import (
     get_postgres_objects,
     get_postgres_object_structure,
     get_postgres_object_preview,
     execute_postgres_query,
+    get_postgres_object_definition,
+    get_postgres_object_parameters,
 )
 from app.core.db_connectors.sqlserver import (
     get_sqlserver_objects,
     get_sqlserver_object_structure,
     get_sqlserver_object_preview,
     execute_sqlserver_query,
+    get_sqlserver_object_definition,
+    get_sqlserver_object_parameters,
 )
 try:
-    from app.core.db_connectors.oracle import execute_oracle_query
+    from app.core.db_connectors.oracle import (
+        get_oracle_objects,
+        get_oracle_object_structure,
+        get_oracle_object_preview,
+        get_oracle_object_definition,
+        get_oracle_object_parameters,
+        execute_oracle_query,
+    )
 except Exception:
+    get_oracle_objects = None
+    get_oracle_object_structure = None
+    get_oracle_object_preview = None
+    get_oracle_object_definition = None
+    get_oracle_object_parameters = None
     execute_oracle_query = None
 
 
 class DbExplorerError(Exception):
     pass
+
+
+_READ_ONLY_STARTS = ("select", "with", "show", "describe", "explain")
+_MODIFICATION_STARTS = (
+    "insert",
+    "update",
+    "delete",
+    "create",
+    "alter",
+    "drop",
+    "truncate",
+    "merge",
+    "exec",
+    "execute",
+    "call",
+    "begin",
+)
+
+
+def _first_word(sql: str) -> str:
+    return (sql.strip().split(None, 1)[0].lower() if sql.strip() else "")
 
 
 class DbExplorerService:
@@ -36,8 +75,10 @@ class DbExplorerService:
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
             groups = get_sqlserver_objects(payload)
         elif provider == "oracle":
-            from app.core.db_connectors.oracle import get_oracle_objects
-            groups = get_oracle_objects(payload)
+            if get_oracle_objects is None:
+                groups = []
+            else:
+                groups = get_oracle_objects(payload)
         else:
             raise ValueError(f"Unsupported provider: {payload.provider}")
 
@@ -53,18 +94,11 @@ class DbExplorerService:
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
             columns = get_sqlserver_object_structure(payload, object_name, object_type, schema_name)
         elif provider == "oracle":
-            from app.core.db_connectors.oracle import get_oracle_object_structure
-            columns = get_oracle_object_structure(payload, object_name, object_type, schema_name)
+            columns = get_oracle_object_structure(payload, object_name, object_type, schema_name) if get_oracle_object_structure else []
         else:
             raise ValueError(f"Unsupported provider: {payload.provider}")
 
-        return DbObjectStructureResponse(
-            provider=provider,
-            objectName=object_name,
-            objectType=object_type,
-            schemaName=schema_name,
-            columns=columns,
-        )
+        return DbObjectStructureResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, columns=columns)
 
     def get_object_preview(self, payload, object_name, object_type, limit, schema_name=None):
         self._validate_connection_payload(payload, allow_demo_oracle=True)
@@ -77,22 +111,45 @@ class DbExplorerService:
         elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
             columns, rows = get_sqlserver_object_preview(payload, object_name, object_type, limit, schema_name)
         elif provider == "oracle":
-            from app.core.db_connectors.oracle import get_oracle_object_preview
-            columns, rows = get_oracle_object_preview(payload, object_name, object_type, limit, schema_name)
+            columns, rows = get_oracle_object_preview(payload, object_name, object_type, limit, schema_name) if get_oracle_object_preview else ([], [])
         else:
             raise ValueError(f"Unsupported provider: {payload.provider}")
 
-        return DbObjectPreviewResponse(
-            provider=provider,
-            objectName=object_name,
-            objectType=object_type,
-            schemaName=schema_name,
-            columns=columns,
-            rows=rows,
-            rowCount=len(rows),
-        )
+        return DbObjectPreviewResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, columns=columns, rows=rows, rowCount=len(rows))
 
-    def execute_query(self, payload: ConnectionTestRequest, sql: str, limit: int):
+    def get_object_definition(self, payload, object_name, object_type, schema_name=None):
+        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_object(object_name, object_type)
+        provider = payload.provider.lower().strip()
+
+        if provider == "postgresql":
+            definition = get_postgres_object_definition(payload, object_name, object_type, schema_name)
+        elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
+            definition = get_sqlserver_object_definition(payload, object_name, object_type, schema_name)
+        elif provider == "oracle":
+            definition = get_oracle_object_definition(payload, object_name, object_type, schema_name) if get_oracle_object_definition else None
+        else:
+            raise ValueError(f"Unsupported provider: {payload.provider}")
+
+        return DbObjectDefinitionResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, definition=definition)
+
+    def get_object_parameters(self, payload, object_name, object_type, schema_name=None):
+        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_object(object_name, object_type)
+        provider = payload.provider.lower().strip()
+
+        if provider == "postgresql":
+            parameters = get_postgres_object_parameters(payload, object_name, object_type, schema_name)
+        elif provider in ("sqlserver", "sql_server", "sql server", "mssql"):
+            parameters = get_sqlserver_object_parameters(payload, object_name, object_type, schema_name)
+        elif provider == "oracle":
+            parameters = get_oracle_object_parameters(payload, object_name, object_type, schema_name) if get_oracle_object_parameters else []
+        else:
+            raise ValueError(f"Unsupported provider: {payload.provider}")
+
+        return DbObjectParametersResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, parameters=parameters)
+
+    def execute_query(self, payload: ConnectionTestRequest, sql: str, limit: int, allow_data_modification: bool = False):
         self._validate_connection_payload(payload, allow_demo_oracle=True)
         self._validate_limit(limit, max_limit=500)
         clean_sql = (sql or "").strip()
@@ -100,15 +157,25 @@ class DbExplorerService:
         if not clean_sql:
             raise DbExplorerError("SQL is required")
 
+        statement_type = _first_word(clean_sql)
+        is_read_only = statement_type in _READ_ONLY_STARTS
+        is_modification = statement_type in _MODIFICATION_STARTS or not is_read_only
+
+        if is_modification and not allow_data_modification:
+            raise DbExplorerError("Data modification is disabled. Turn Safe Mode OFF to run this statement.")
+
         provider = payload.provider.lower().strip()
         if provider == "postgresql":
-            return execute_postgres_query(payload, clean_sql, limit)
+            columns, rows, rows_affected = execute_postgres_query(payload, clean_sql, limit)
+            return columns, rows, rows_affected, statement_type
         if provider in ("sqlserver", "sql_server", "sql server", "mssql"):
-            return execute_sqlserver_query(payload, clean_sql, limit)
+            columns, rows, rows_affected = execute_sqlserver_query(payload, clean_sql, limit)
+            return columns, rows, rows_affected, statement_type
         if provider == "oracle":
             if execute_oracle_query is None:
-                return ["message"], [["Oracle connector is in DEMO MODE. Query not executed."]]
-            return execute_oracle_query(payload, clean_sql, limit)
+                return ["message"], [["Oracle connector is in DEMO MODE. Query not executed."]], 0, statement_type
+            columns, rows, rows_affected = execute_oracle_query(payload, clean_sql, limit)
+            return columns, rows, rows_affected, statement_type
 
         raise ValueError(f"Unsupported provider: {payload.provider}")
 

@@ -52,3 +52,41 @@ class AppStrings {
   static const preview = "Preview";
   static const norows = "There are no rows to show.";
 }
+
+class QeStrings {
+  const QeStrings._();
+
+  static const String formatSql = 'FORMAT SQL';
+  static const String saveQuery = 'SAVE QUERY';
+  static const String loadQuery = 'LOAD QUERY';
+  static const String sqlHint = 'Write SQL here...';
+  static const String limit = 'Limit';
+  static const String timeout = 'Timeout';
+  static const String transaction = 'Transaction';
+  static const String execute = 'Execute';
+  static const String executeQuery = 'Execute Query';
+
+  static const List<String> tabs = ['Editor', 'Results', 'Messages', 'History'];
+
+  static const String noSqlToRun = 'There is no SQL to execute.';
+  static const String sqlFormatted = 'SQL formatted.';
+  static const String editorCleared = 'Editor cleared.';
+  static const String localSavePending = 'Local save is pending integration.';
+  static const String exportCsvPending = 'CSV export is pending implementation.';
+
+  static String queryExecuted(int elapsedMilliseconds, int rowCount) =>
+      'Query executed in $elapsedMilliseconds ms. Rows: $rowCount.';
+
+  static const String noResultsTitle = 'No results';
+  static const String noResultsMessage = 'Run a query to see data here.';
+  static const String queryExecutedTitle = 'Query executed';
+  static const String commandExecuted = 'Command executed successfully.';
+
+  static const String noMessagesTitle = 'No messages';
+  static const String noMessagesMessage = 'Errors and notices will appear here.';
+
+  static const String noHistoryTitle = 'No history';
+  static const String noHistoryMessage = 'Queries executed during this session will be stored here.';
+
+  static const String sqlErrorTitle = 'SQL execution error';
+}

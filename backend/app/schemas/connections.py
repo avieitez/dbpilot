@@ -51,6 +51,13 @@ class DbColumnInfoResponse(BaseModel):
     flag: str | None = None
 
 
+class DbParameterInfoResponse(BaseModel):
+    name: str
+    dataType: str
+    direction: str | None = None
+    hasDefault: bool | None = None
+
+
 class DbObjectStructureResponse(BaseModel):
     provider: str
     objectName: str
@@ -69,6 +76,22 @@ class DbObjectPreviewResponse(BaseModel):
     rowCount: int
 
 
+class DbObjectDefinitionResponse(BaseModel):
+    provider: str
+    objectName: str
+    objectType: str
+    schemaName: str | None = None
+    definition: str | None = None
+
+
+class DbObjectParametersResponse(BaseModel):
+    provider: str
+    objectName: str
+    objectType: str
+    schemaName: str | None = None
+    parameters: list[DbParameterInfoResponse]
+
+
 class ObjectStructureRequest(BaseModel):
     connection: ConnectionTestRequest
     objectName: str
@@ -82,3 +105,17 @@ class ObjectPreviewRequest(BaseModel):
     objectType: str
     schemaName: str | None = None
     limit: int = 50
+
+
+class ObjectDefinitionRequest(BaseModel):
+    connection: ConnectionTestRequest
+    objectName: str
+    objectType: str
+    schemaName: str | None = None
+
+
+class ObjectParametersRequest(BaseModel):
+    connection: ConnectionTestRequest
+    objectName: str
+    objectType: str
+    schemaName: str | None = None

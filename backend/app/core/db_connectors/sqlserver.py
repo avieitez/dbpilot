@@ -1,9 +1,6 @@
 import pymssql
 
 
-_SYSTEM_SCHEMAS = {"sys", "INFORMATION_SCHEMA"}
-
-
 def _connect(payload):
     database = payload.database or "master"
     return pymssql.connect(
@@ -41,7 +38,7 @@ def build_sqlserver_default_query(object_name: str, object_type: str, schema_nam
     clean_type = (object_type or "").lower()
     if clean_type == "procedure":
         return f"EXEC {qualified};"
-    return f"SELECT TOP 50 *\nFROM {qualified};"
+    return f"SELECT TOP 100 *\nFROM {qualified};"
 
 
 def test_sqlserver_connection(payload) -> dict:
@@ -52,11 +49,7 @@ def test_sqlserver_connection(payload) -> dict:
         cursor = conn.cursor()
         cursor.execute("SELECT @@VERSION")
         row = cursor.fetchone()
-        return {
-            "success": True,
-            "message": f"Connected OK. SQL Server version: {row[0]}",
-            "provider": "sqlserver",
-        }
+        return {"success": True, "message": f"Connected OK. SQL Server version: {row[0]}", "provider": "sqlserver"}
     except Exception as e:
         return {"success": False, "message": str(e), "provider": "sqlserver"}
     finally:
@@ -72,7 +65,6 @@ def get_sqlserver_objects(payload):
     try:
         conn = _connect(payload)
         cursor = conn.cursor()
-
         cursor.execute("""
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.TABLES
@@ -81,7 +73,6 @@ def get_sqlserver_objects(payload):
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         tables = cursor.fetchall()
-
         cursor.execute("""
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.VIEWS
@@ -89,7 +80,6 @@ def get_sqlserver_objects(payload):
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         views = cursor.fetchall()
-
         cursor.execute("""
             SELECT ROUTINE_SCHEMA, ROUTINE_NAME
             FROM INFORMATION_SCHEMA.ROUTINES
@@ -124,45 +114,37 @@ def get_sqlserver_objects(payload):
 def get_sqlserver_object_structure(payload, object_name: str, object_type: str, schema_name: str | None = None):
     if (object_type or "").lower() == "procedure":
         return []
-
     conn = None
     cursor = None
     try:
         conn = _connect(payload)
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT
-                c.COLUMN_NAME,
-                CASE
-                    WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL AND c.CHARACTER_MAXIMUM_LENGTH > 0
-                        THEN CONCAT(c.DATA_TYPE, '(', c.CHARACTER_MAXIMUM_LENGTH, ')')
-                    WHEN c.NUMERIC_PRECISION IS NOT NULL AND c.NUMERIC_SCALE IS NOT NULL
-                        THEN CONCAT(c.DATA_TYPE, '(', c.NUMERIC_PRECISION, ',', c.NUMERIC_SCALE, ')')
-                    ELSE c.DATA_TYPE
-                END AS DATA_TYPE,
-                c.IS_NULLABLE,
-                CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
+            SELECT c.COLUMN_NAME,
+                   CASE
+                       WHEN c.CHARACTER_MAXIMUM_LENGTH IS NOT NULL AND c.CHARACTER_MAXIMUM_LENGTH > 0
+                           THEN CONCAT(c.DATA_TYPE, '(', c.CHARACTER_MAXIMUM_LENGTH, ')')
+                       WHEN c.NUMERIC_PRECISION IS NOT NULL AND c.NUMERIC_SCALE IS NOT NULL
+                           THEN CONCAT(c.DATA_TYPE, '(', c.NUMERIC_PRECISION, ',', c.NUMERIC_SCALE, ')')
+                       ELSE c.DATA_TYPE
+                   END AS DATA_TYPE,
+                   c.IS_NULLABLE,
+                   CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS IS_PRIMARY_KEY
             FROM INFORMATION_SCHEMA.COLUMNS c
             LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
                 ON c.TABLE_SCHEMA = kcu.TABLE_SCHEMA
-                AND c.TABLE_NAME = kcu.TABLE_NAME
-                AND c.COLUMN_NAME = kcu.COLUMN_NAME
+               AND c.TABLE_NAME = kcu.TABLE_NAME
+               AND c.COLUMN_NAME = kcu.COLUMN_NAME
             LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
                 ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-                AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-                AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+               AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+               AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
             WHERE c.TABLE_NAME = %s
               AND (%s IS NULL OR c.TABLE_SCHEMA = %s)
             ORDER BY c.ORDINAL_POSITION
         """, (object_name, schema_name, schema_name))
-
         return [
-            {
-                "name": row[0],
-                "dataType": row[1],
-                "isNullable": str(row[2]).upper() == "YES",
-                "flag": "PK" if row[3] else None,
-            }
+            {"name": row[0], "dataType": row[1], "isNullable": str(row[2]).upper() == "YES", "flag": "PK" if row[3] else None}
             for row in cursor.fetchall()
         ]
     finally:
@@ -175,7 +157,6 @@ def get_sqlserver_object_structure(payload, object_name: str, object_type: str, 
 def get_sqlserver_object_preview(payload, object_name: str, object_type: str, limit: int, schema_name: str | None = None):
     if (object_type or "").lower() == "procedure":
         return [], []
-
     conn = None
     cursor = None
     try:
@@ -212,18 +193,16 @@ def get_sqlserver_object_definition(payload, object_name: str, object_type: str,
 def get_sqlserver_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
     if (object_type or "").lower() != "procedure":
         return []
-
     conn = None
     cursor = None
     try:
         conn = _connect(payload)
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT
-                p.name,
-                TYPE_NAME(p.user_type_id) AS type_name,
-                CASE WHEN p.is_output = 1 THEN 'OUT' ELSE 'IN' END AS direction,
-                p.has_default_value
+            SELECT p.name,
+                   TYPE_NAME(p.user_type_id) AS type_name,
+                   CASE WHEN p.is_output = 1 THEN 'OUT' ELSE 'IN' END AS direction,
+                   p.has_default_value
             FROM sys.parameters p
             INNER JOIN sys.objects o ON p.object_id = o.object_id
             INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
@@ -231,15 +210,7 @@ def get_sqlserver_object_parameters(payload, object_name: str, object_type: str,
               AND (%s IS NULL OR s.name = %s)
             ORDER BY p.parameter_id
         """, (object_name, schema_name, schema_name))
-        return [
-            {
-                "name": row[0],
-                "dataType": row[1],
-                "direction": row[2],
-                "hasDefault": bool(row[3]),
-            }
-            for row in cursor.fetchall()
-        ]
+        return [{"name": row[0], "dataType": row[1], "direction": row[2], "hasDefault": bool(row[3])} for row in cursor.fetchall()]
     finally:
         if cursor is not None:
             cursor.close()
@@ -255,14 +226,20 @@ def execute_sqlserver_query(payload, sql: str, limit: int):
         cursor = conn.cursor()
         cursor.execute(sql)
         if cursor.description is None:
-            return [], []
+            affected = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
+            conn.commit()
+            return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]], affected
         columns = [column[0] for column in cursor.description]
         rows = []
         for index, row in enumerate(cursor.fetchall()):
             if index >= limit:
                 break
             rows.append([_serialize_value(value) for value in row])
-        return columns, rows
+        return columns, rows, len(rows)
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        raise
     finally:
         if cursor is not None:
             cursor.close()

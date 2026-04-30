@@ -57,29 +57,26 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     final provider = widget.connection.provider.apiValue;
     final objectName = widget.objectName?.trim();
+    final objectType = (widget.objectType ?? 'table').toLowerCase();
     final schemaName = widget.schemaName?.trim();
+    final qualified = schemaName == null || schemaName.isEmpty ? objectName : '$schemaName.$objectName';
 
     if (objectName == null || objectName.isEmpty) {
-      return '';
+      if (provider == 'postgresql') return 'SELECT *\nFROM schema_name.table_name\nLIMIT 100;';
+      if (provider == 'oracle') return 'SELECT *\nFROM TABLE_NAME\nFETCH FIRST 100 ROWS ONLY;';
+      return 'SELECT TOP 100 *\nFROM dbo.TableName;';
     }
-
-    final qualifiedName = (schemaName != null && schemaName.isNotEmpty)
-        ? '$schemaName.$objectName'
-        : objectName;
 
     if (provider == 'postgresql') {
-      return 'SELECT *\nFROM $qualifiedName\nLIMIT 50;';
+      if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
+      return 'SELECT *\nFROM $qualified\nLIMIT 100;';
     }
-
-    if (provider == 'sqlserver' || provider == 'sql_server' || provider == 'mssql') {
-      return 'SELECT TOP 50 *\nFROM $qualifiedName;';
-    }
-
     if (provider == 'oracle') {
-      return 'SELECT *\nFROM $qualifiedName\nWHERE ROWNUM <= 50;';
+      if (objectType == 'procedure') return 'BEGIN\n  $qualified;\nEND;';
+      return 'SELECT *\nFROM $qualified\nFETCH FIRST 100 ROWS ONLY;';
     }
-
-    return 'SELECT *\nFROM $qualifiedName;';
+    if (objectType == 'procedure') return 'EXEC $qualified;';
+    return 'SELECT TOP 100 *\nFROM $qualified;';
   }
 
   Future<void> _execute() async {

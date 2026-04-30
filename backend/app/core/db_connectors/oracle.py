@@ -1,12 +1,10 @@
 def test_oracle_connection(payload) -> dict:
-    target = payload.serviceName or payload.sid or "unknown"
+    target = payload.service_name or payload.sid or "unknown"
     return {
         "success": True,
-        "message": f"Oracle connector selected for host={payload.host}, target={target}. DEMO MODE.",
+        "message": f"Oracle connector selected for host={payload.host}, target={target}",
         "provider": "oracle",
-        "mode": "demo",
     }
-
 
 def build_oracle_default_query(object_name: str, object_type: str, schema_name: str | None = None) -> str:
     prefix = f"{schema_name}." if schema_name else ""
@@ -88,6 +86,5 @@ def get_oracle_object_parameters(payload, object_name: str, object_type: str, sc
         {"name": "P_ID", "dataType": "NUMBER", "direction": "IN", "hasDefault": False},
     ]
 
-
 def execute_oracle_query(payload, sql: str, limit: int):
-    return ["message"], [["Oracle connector is currently in DEMO MODE. Query was not executed."]]
+    return ["message"], [["Oracle connector is currently in DEMO MODE. Query was not executed."]], 0

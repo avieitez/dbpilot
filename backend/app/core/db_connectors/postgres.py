@@ -179,6 +179,65 @@ def get_postgres_object_preview(payload, object_name: str, object_type: str, lim
             conn.close()
 
 
+def get_postgres_object_definition(payload, object_name: str, object_type: str, schema_name: str | None = None):
+    conn = None
+    cur = None
+    try:
+        conn = _connect(payload)
+        cur = conn.cursor()
+        schema = _schema(schema_name)
+        clean_type = (object_type or "").lower()
+        if clean_type == "view":
+            cur.execute("SELECT pg_get_viewdef(%s::regclass, true)", (f'{schema}."{object_name}"',))
+            row = cur.fetchone()
+            return row[0] if row else None
+        if clean_type == "function":
+            cur.execute("""
+                SELECT pg_get_functiondef(p.oid)
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = %s AND p.proname = %s
+                ORDER BY p.oid
+                LIMIT 1
+            """, (schema, object_name))
+            row = cur.fetchone()
+            return row[0] if row else None
+        return None
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
+
+
+def get_postgres_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
+    if (object_type or "").lower() != "function":
+        return []
+
+    conn = None
+    cur = None
+    try:
+        conn = _connect(payload)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT parameter_name, data_type, parameter_mode
+            FROM information_schema.parameters
+            WHERE specific_schema = %s
+              AND specific_name LIKE %s
+              AND parameter_name IS NOT NULL
+            ORDER BY ordinal_position
+        """, (_schema(schema_name), f"{object_name}%"))
+        return [
+            {"name": row[0], "dataType": row[1], "direction": row[2], "hasDefault": None}
+            for row in cur.fetchall()
+        ]
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
+
+
 def execute_postgres_query(payload, sql: str, limit: int):
     conn = None
     cur = None
@@ -189,14 +248,14 @@ def execute_postgres_query(payload, sql: str, limit: int):
         if cur.description is None:
             affected = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
             conn.commit()
-            return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]]
+            return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]], affected
         columns = [desc[0] for desc in cur.description]
         rows = []
         for index, row in enumerate(cur.fetchall()):
             if index >= limit:
                 break
             rows.append([_serialize_value(value) for value in row])
-        return columns, rows
+        return columns, rows, len(rows)
     except Exception:
         if conn is not None:
             conn.rollback()
