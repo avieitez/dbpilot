@@ -5,116 +5,91 @@ class SavedConnectionCard extends StatelessWidget {
     super.key,
     required this.provider,
     required this.name,
-    required this.isConnected,
+    this.host,
+    this.database,
+    this.isConnected = false,
     this.trailing,
   });
 
   final String provider;
   final String name;
+  final String? host;
+  final String? database;
   final bool isConnected;
   final Widget? trailing;
 
-  String _providerAsset(String provider) {
-    switch (provider.toLowerCase().trim()) {
-      case 'postgresql':
-      case 'postgres':
-        return 'assets/providers/postgre.png';
-      case 'oracle':
-        return 'assets/providers/oracle.png';
-      case 'sql server':
-      case 'sqlserver':
-      case 'sql_server':
-      case 'mssql':
-        return 'assets/providers/sql_server.png';
-      default:
-        return 'assets/icons/database.png';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final providerAsset = _providerAsset(provider);
+    final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF132A4A),
+        color: const Color(0xFF132238),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: const Color(0xFF2D8CFF).withOpacity(0.30),
+          color: isConnected
+              ? const Color(0xFF2D8CFF).withOpacity(0.45)
+              : Colors.white.withOpacity(0.08),
         ),
       ),
       child: Row(
         children: [
           Container(
-            width: 62,
-            height: 62,
-            padding: const EdgeInsets.all(12),
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
-              color: const Color(0xFF233F6B),
-              borderRadius: BorderRadius.circular(18),
+              color: isConnected
+                  ? const Color(0xFF203A5F)
+                  : Colors.white.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Image.asset(
-              providerAsset,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                return const Icon(
-                  Icons.storage_rounded,
-                  size: 34,
-                  color: Colors.white,
-                );
-              },
+            child: Icon(
+              Icons.storage_rounded,
+              color: isConnected ? const Color(0xFF9EC5FF) : Colors.white70,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name,
+                  name.isEmpty ? 'Unnamed connection' : name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
+                  style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.white,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
-                  provider,
-                  style: const TextStyle(
-                    fontSize: 16,
+                  _subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
                     color: Colors.white70,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          if (trailing != null) trailing!,
-          if (trailing == null && isConnected)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1D4D3C),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.green.withOpacity(0.35),
-                ),
-              ),
-              child: const Text(
-                'Active',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
         ],
       ),
     );
+  }
+
+  String get _subtitle {
+    final parts = <String>[];
+    if (provider.trim().isNotEmpty) parts.add(provider.trim());
+    if ((host ?? '').trim().isNotEmpty) parts.add(host!.trim());
+    if ((database ?? '').trim().isNotEmpty) parts.add(database!.trim());
+    return parts.isEmpty ? 'Database connection' : parts.join(' • ');
   }
 }

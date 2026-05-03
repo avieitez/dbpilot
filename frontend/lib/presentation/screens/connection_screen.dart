@@ -478,6 +478,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     children: [
                       Row(
                         children: DatabaseProvider.values.map((provider) {
+                          final isSelectedProvider = provider == _selectedProvider;
+                          final providerEnabled = !_isEditing || isSelectedProvider;
+
                           return Expanded(
                             child: Padding(
                               padding: EdgeInsets.only(
@@ -487,14 +490,39 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 height: 76,
                                 child: ProviderSelectorCard(
                                   provider: provider,
-                                  selected: provider == _selectedProvider,
-                                  onTap: () => _onProviderSelected(provider),
+                                  selected: isSelectedProvider,
+                                  enabled: providerEnabled,
+                                  onTap: providerEnabled
+                                      ? () => _onProviderSelected(provider)
+                                      : () {},
                                 ),
                               ),
                             ),
                           );
                         }).toList(),
                       ),
+                      if (_isEditing) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.lock_rounded,
+                              size: 16,
+                              color: Colors.white.withOpacity(0.55),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Provider cannot be changed while editing a saved connection.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white.withOpacity(0.60),
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 18),
                       _buildTextField(
                         controller: _nameController,

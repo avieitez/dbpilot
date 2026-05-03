@@ -21,6 +21,13 @@ class AppStrings {
   static const edit = "Edit";
   static const delete = "Delete";
 
+  static const cancel = "Cancel";
+  static const thisConnection = "this connection";
+  static const deleteConnectionTitle = "Delete connection?";
+  static String deleteConnectionMessage(String connectionName) =>
+      "Are you sure you want to delete '$connectionName'? This action cannot be undone.";
+  static const connectionDeleted = "Connection deleted.";
+
   static const search = "Search tables, views, procedures...";
   static const tables = "Tables";
   static const views = "Views";

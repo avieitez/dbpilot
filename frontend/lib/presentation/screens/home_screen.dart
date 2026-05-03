@@ -86,14 +86,49 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadSavedConnections();
   }
 
+  Future<bool> _confirmDeleteConnection(Map<String, dynamic> connection) async {
+    final connectionName = (connection['name']?.toString().trim().isNotEmpty ?? false)
+        ? connection['name'].toString().trim()
+        : AppStrings.thisConnection;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text(AppStrings.deleteConnectionTitle),
+          content: Text(AppStrings.deleteConnectionMessage(connectionName)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(AppStrings.cancel),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: const Color(0xFF8B1E2D),
+              ),
+              child: const Text(AppStrings.delete),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
   Future<void> _deleteConnection(Map<String, dynamic> connection) async {
+    final confirmed = await _confirmDeleteConnection(connection);
+    if (!confirmed) return;
+
     final connectionId = _storageService.ensureConnectionId(connection);
     await _storageService.deleteConnectionById(connectionId);
     await _loadSavedConnections();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Connection deleted.')),
+      const SnackBar(content: Text(AppStrings.connectionDeleted)),
     );
   }
 
@@ -427,26 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           );
-                        }),                          const SizedBox(height: 20),
-                          const Text(
-                            'Recent Queries',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Card(
-                            color: const Color(0xFF132238),
-                            child: ListTile(
-                              leading: const Icon(
-                                Icons.query_stats_rounded,
-                                color: Colors.white70,
-                              ),
-                              title: const Text('Top Customers Q1'),
-                              trailing: const Icon(Icons.chevron_right),
-                            ),
-                          ),
+                        }),
                           const SizedBox(height: 8),
                         ],
                       ),
