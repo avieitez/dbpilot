@@ -32,6 +32,7 @@ class QueryEditorScreen extends StatefulWidget {
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
   late final TextEditingController _sqlController;
+  late final FocusNode _editorFocusNode;
   late final ConnectionApiService _apiService;
 
   int _selectedTab = 0;
@@ -50,6 +51,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   void initState() {
     super.initState();
     _apiService = ConnectionApiService();
+    _editorFocusNode = FocusNode();
     _sqlController = TextEditingController(text: _initialSql());
   }
 
@@ -170,11 +172,13 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     });
     _sqlController.text = sql.trim();
     _addMessage(QeStrings.sqlFormatted);
+    _editorFocusNode.requestFocus();
   }
 
   void _clearEditor() {
     _sqlController.clear();
     _addMessage(QeStrings.editorCleared);
+    _editorFocusNode.requestFocus();
   }
 
   void _loadHistory(_HistoryEntry entry) {
@@ -184,6 +188,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   @override
   void dispose() {
+    _editorFocusNode.dispose();
     _sqlController.dispose();
     _apiService.dispose();
     super.dispose();
@@ -193,8 +198,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         titleSpacing: 0,
         title: Column(
@@ -217,24 +224,36 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               child: IndexedStack(
                 index: _selectedTab,
                 children: [
-                  _buildEditor(theme, colors),
+                  _buildEditor(theme, colors, keyboardOpen),
                   _buildResults(theme, colors),
                   _buildMessages(theme, colors),
                   _buildHistory(theme, colors),
                 ],
               ),
             ),
-            _buildBottomBar(theme, colors),
+            Visibility(
+              visible: !keyboardOpen,
+              maintainState: true,
+              maintainAnimation: true,
+              maintainSize: false,
+              child: _buildBottomBar(theme, colors),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildEditor(ThemeData theme, ColorScheme colors) {
+  Widget _buildEditor(ThemeData theme, ColorScheme colors, bool keyboardOpen) {
     return Column(
       children: [
-        _buildToolbar(theme, colors),
+        Visibility(
+          visible: !keyboardOpen,
+          maintainState: true,
+          maintainAnimation: true,
+          maintainSize: false,
+          child: _buildToolbar(theme, colors),
+        ),
         Expanded(
           child: Container(
             margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -243,33 +262,45 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: colors.outlineVariant.withOpacity(0.5)),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LineNumbers(controller: _sqlController),
-                Expanded(
-                  child: TextField(
-                    controller: _sqlController,
-                    expands: true,
-                    maxLines: null,
-                    minLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    keyboardType: TextInputType.multiline,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45),
-                    decoration: const InputDecoration(
-                      hintText: QeStrings.sqlHint,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.fromLTRB(12, 14, 12, 14),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _editorFocusNode.requestFocus(),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _LineNumbers(controller: _sqlController),
+                  Expanded(
+                    child: TextField(
+                      focusNode: _editorFocusNode,
+                      controller: _sqlController,
+                      expands: true,
+                      maxLines: null,
+                      minLines: null,
+                      textAlignVertical: TextAlignVertical.top,
+                      keyboardType: TextInputType.multiline,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onTapOutside: (_) {},
+                      style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45),
+                      decoration: const InputDecoration(
+                        hintText: QeStrings.sqlHint,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.fromLTRB(12, 14, 12, 14),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-        _buildQuickKeys(colors),
+        Visibility(
+          visible: !keyboardOpen,
+          maintainState: true,
+          maintainAnimation: true,
+          maintainSize: false,
+          child: _buildQuickKeys(colors),
+        ),
       ],
     );
   }
@@ -313,6 +344,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                 text: next,
                 selection: TextSelection.collapsed(offset: insertAt + value.length + 1),
               );
+              _editorFocusNode.requestFocus();
             },
           );
         },
@@ -381,7 +413,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     label: QeStrings.limit,
                     value: _limit,
                     values: const [50, 100, 250, 500],
-                    onChanged: (v) => setState(() => _limit = v),
+                    onChanged: (v) { setState(() => _limit = v); _editorFocusNode.requestFocus(); },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -391,7 +423,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     value: _timeoutSeconds,
                     values: const [10, 30, 60],
                     suffix: 's',
-                    onChanged: (v) => setState(() => _timeoutSeconds = v),
+                    onChanged: (v) { setState(() => _timeoutSeconds = v); _editorFocusNode.requestFocus(); },
                   ),
                 ),
               ],
@@ -468,78 +500,338 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     return result == true;
   }
 
-  Widget _buildResults(ThemeData theme, ColorScheme colors) {
-    if (_executing) return const Center(child: CircularProgressIndicator());
-    if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
-    final result = _result;
-    if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: 'Sin resultados', message: 'Ejecuta una consulta para ver los datos aquí.');
-    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-          child: Row(
-            children: [
-              Expanded(child: Text('Results · ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${_lastDuration!.inMilliseconds} ms'}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
-              IconButton(onPressed: () => _addMessage('Export CSV pendiente de implementar.'), icon: const Icon(Icons.download_rounded)),
-              IconButton(onPressed: () => setState(() {}), icon: const Icon(Icons.refresh_rounded)),
-            ],
-          ),
+Widget _buildResults(ThemeData theme, ColorScheme colors) {
+  if (_executing) {
+    return const Center(child: CircularProgressIndicator());
+  }
+  if (_errorMessage != null) {
+    return _ErrorPanel(message: _errorMessage!);
+  }
+  final result = _result;
+  if (result == null) {
+    return const _EmptyPanel(
+      icon: Icons.table_chart_outlined,
+      title: QeStrings.noResultsTitle,
+      message: QeStrings.noResultsMessage,
+    );
+  }
+  if (result.columns.isEmpty) {
+    return _EmptyPanel(
+      icon: Icons.check_circle_outline_rounded,
+      title: QeStrings.queryExecutedTitle,
+      message: result.message.isEmpty ? QeStrings.commandExecuted : result.message,
+    );
+  }
+ // Palette — matches dark screenshot
+  const Color colHeader  = Color(0xFF53D39A); // green column names
+  const Color rowNumCol  = Color(0xFF53D39A); // green # column
+  const Color bgEven     = Color(0xFF111E2C);
+  const Color bgOdd      = Color(0xFF0E1824);
+  const Color borderCol  = Color(0x18FFFFFF);
+  const Color txtCol     = Color(0xFFCDD6E0);
+  const Color headerBg   = Color(0xFF0C1520);
+ 
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // ── Result summary bar ──
+      Container(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        decoration: const BoxDecoration(
+          color: headerBg,
+          border: Border(bottom: BorderSide(color: borderCol)),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowHeight: 42,
-                dataRowMinHeight: 38,
-                dataRowMaxHeight: 54,
-                columns: result.columns.map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.w700)))).toList(),
-                rows: result.rows.map((row) => DataRow(cells: row.map((v) => DataCell(SelectableText(v?.toString() ?? 'NULL'))).toList())).toList(),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Results — ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${(_lastDuration!.inMilliseconds / 1000).toStringAsFixed(2)} sec'}',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: colHeader,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
+            ),
+            // navigation arrows
+            _SmallIconBtn(icon: Icons.chevron_left_rounded, onTap: () {}),
+            const SizedBox(width: 4),
+            _SmallIconBtn(icon: Icons.chevron_right_rounded, onTap: () {}),
+            const SizedBox(width: 8),
+            _SmallIconBtn(
+              icon: Icons.download_rounded,
+              onTap: () => _addMessage(QeStrings.exportCsvPending),
+            ),
+          ],
+        ),
+      ),
+ 
+      // ── Scrollable table ──
+      Expanded(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SingleChildScrollView(
+            child: Table(
+              defaultColumnWidth: const IntrinsicColumnWidth(),
+              border: TableBorder.symmetric(
+                inside: const BorderSide(color: borderCol, width: 0.5),
+              ),
+              children: [
+                // Header row
+                TableRow(
+                  decoration: const BoxDecoration(color: headerBg),
+                  children: [
+                    // row-number header
+                    _tableCell(
+                      child: const Text('#',
+                          style: TextStyle(
+                              color: rowNumCol,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12)),
+                      isHeader: true,
+                    ),
+                    ...result.columns.map(
+                      (c) => _tableCell(
+                        child: Text(
+                          c,
+                          style: const TextStyle(
+                            color: colHeader,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                        isHeader: true,
+                      ),
+                    ),
+                  ],
+                ),
+                // Data rows
+                ...result.rows.asMap().entries.map((entry) {
+                  final idx  = entry.key;
+                  final row  = entry.value;
+                  final bg   = idx.isEven ? bgEven : bgOdd;
+                  return TableRow(
+                    decoration: BoxDecoration(color: bg),
+                    children: [
+                      // row number
+                      _tableCell(
+                        child: Text(
+                          '${idx + 1}',
+                          style: const TextStyle(
+                              color: Color(0xFF3C4E60), fontSize: 11),
+                        ),
+                      ),
+                      ...row.map(
+                        (v) => _tableCell(
+                          child: SelectableText(
+                            v?.toString() ?? 'NULL',
+                            style: const TextStyle(
+                                color: txtCol, fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ],
             ),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildMessages(ThemeData theme, ColorScheme colors) {
-    if (_messages.isEmpty) return const _EmptyPanel(icon: Icons.message_outlined, title: 'Sin mensajes', message: 'Los errores y avisos aparecerán aquí.');
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: _messages.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) => ListTile(
-        dense: true,
-        leading: Icon(_messages[index].contains('ERROR') ? Icons.error_outline : Icons.info_outline),
-        title: SelectableText(_messages[index]),
       ),
-    );
-  }
+    ],
+  );
+}
+ 
+/// Shared table cell helper
+Widget _tableCell({required Widget child, bool isHeader = false}) {
+  return Padding(
+    padding: EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: isHeader ? 10 : 8,
+    ),
+    child: child,
+  );
+}
 
-  Widget _buildHistory(ThemeData theme, ColorScheme colors) {
-    if (_history.isEmpty) return const _EmptyPanel(icon: Icons.history_rounded, title: 'Sin historial', message: 'Las consultas ejecutadas se guardarán durante esta sesión.');
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: _history.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final entry = _history[index];
-        return Card(
-          child: ListTile(
-            leading: const Icon(Icons.terminal_rounded),
-            title: Text(entry.sql.replaceAll('\n', ' '), maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace')),
-            subtitle: Text('${entry.dateTime.hour.toString().padLeft(2, '0')}:${entry.dateTime.minute.toString().padLeft(2, '0')} · ${entry.message}'),
-            trailing: IconButton(icon: const Icon(Icons.upload_rounded), onPressed: () => _loadHistory(entry)),
-            onTap: () => _loadHistory(entry),
-          ),
-        );
-      },
+Widget _buildMessages(ThemeData theme, ColorScheme colors) {
+  if (_messages.isEmpty) {
+    return const _EmptyPanel(
+      icon: Icons.message_outlined,
+      title: QeStrings.noMessagesTitle,
+      message: QeStrings.noMessagesMessage,
     );
   }
+ 
+  return ListView.separated(
+    padding: const EdgeInsets.all(12),
+    itemCount: _messages.length,
+    separatorBuilder: (_, __) => const SizedBox(height: 8),
+    itemBuilder: (context, index) {
+      final raw     = _messages[index];
+      final isError = raw.contains('ERROR');
+ 
+      // Parse: "HH:MM · message body"
+      final dotIdx  = raw.indexOf(' · ');
+      final time    = dotIdx > 0 ? raw.substring(0, dotIdx) : '';
+      final body    = dotIdx > 0 ? raw.substring(dotIdx + 3) : raw;
+ 
+      final cardBg     = isError
+          ? const Color(0xFF2A0E0E)
+          : const Color(0xFF0D2318);
+      final borderCol  = isError
+          ? const Color(0x44FF5F57)
+          : const Color(0x4453D39A);
+      final titleColor = isError
+          ? const Color(0xFFFF6B6B)
+          : const Color(0xFF53D39A);
+      final titleIcon  = isError ? '✗' : '✓';
+      final titleText  = isError
+          ? QeStrings.sqlErrorTitle
+          : QeStrings.queryExecutedTitle;
+ 
+      // Build detail lines shown inside the card
+      final List<String> details = [];
+      if (time.isNotEmpty) details.add(time);
+      details.add(body);
+ 
+      // If it's a success message we also show Limit / Timeout
+      if (!isError && body.startsWith('Query executed')) {
+        details.add('Limit: $_limit · Timeout: ${_timeoutSeconds}s');
+      }
+ 
+      return Container(
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderCol),
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title line
+            Text(
+              '$titleIcon $titleText',
+              style: TextStyle(
+                color: titleColor,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 6),
+            // Detail lines in monospace
+            ...details.map(
+              (line) => Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  line,
+                  style: const TextStyle(
+                    color: Color(0xFF8A9BB0),
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Widget _buildHistory(ThemeData theme, ColorScheme colors) {
+  if (_history.isEmpty) {
+    return const _EmptyPanel(
+      icon: Icons.history_rounded,
+      title: QeStrings.noHistoryTitle,
+      message: QeStrings.noHistoryMessage,
+    );
+  }
+ 
+  const Color cardBg    = Color(0xFF131F2E);
+  const Color borderCol = Color(0x14FFFFFF);
+  const Color labelCol  = Color(0xFF3C4E60);
+  const Color sqlCol    = Color(0xFFCDD6E0);
+  const Color loadCol   = Color(0xFF53D39A);
+ 
+  return ListView.separated(
+    padding: const EdgeInsets.all(12),
+    itemCount: _history.length,
+    separatorBuilder: (_, __) => const SizedBox(height: 8),
+    itemBuilder: (context, index) {
+      final entry      = _history[index];
+      final queryNum   = _history.length - index; // newest = highest number
+      final timeLabel  =
+          '${entry.dateTime.hour.toString().padLeft(2, '0')}:'
+          '${entry.dateTime.minute.toString().padLeft(2, '0')}';
+ 
+      return GestureDetector(
+        onTap: () => _loadHistory(entry),
+        child: Container(
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderCol),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // "Query #N  ·  HH:MM"
+              Row(
+                children: [
+                  Text(
+                    'Query #$queryNum',
+                    style: const TextStyle(
+                      color: labelCol,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    timeLabel,
+                    style: const TextStyle(
+                      color: labelCol,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // SQL — monospace, up to 4 lines
+              Text(
+                entry.sql,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: sqlCol,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 10),
+              // "↩ Load query"
+              GestureDetector(
+                onTap: () => _loadHistory(entry),
+                child: const Text(
+                  '↩  Load query',
+                  style: TextStyle(
+                    color: loadCol,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 }
 
 class _QueryTabs extends StatelessWidget {
@@ -549,7 +841,7 @@ class _QueryTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labels = const ['Editor', 'Results', 'Messages', 'History'];
+    final labels = QeStrings.tabs;
     return Container(
       height: 48,
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5)))),
@@ -635,7 +927,9 @@ class _LineNumbersState extends State<_LineNumbers> {
     widget.controller.addListener(_refresh);
   }
 
-  void _refresh() => setState(() {});
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -645,17 +939,35 @@ class _LineNumbersState extends State<_LineNumbers> {
 
   @override
   Widget build(BuildContext context) {
-    final count = '\n'.allMatches(widget.controller.text).length + 1;
+    final count = ('\n'.allMatches(widget.controller.text).length + 1).clamp(1, 999).toInt();
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontFamily: 'monospace',
+          height: 1.45,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        );
+
     return Container(
       width: 42,
-      padding: const EdgeInsets.only(top: 14),
-      decoration: BoxDecoration(border: Border(right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.4)))),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(count.clamp(1, 999).toInt(), (index) => Padding(
-          padding: const EdgeInsets.only(right: 8, bottom: 2),
-          child: Text('${index + 1}', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        )),
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.4)),
+        ),
+      ),
+      child: ClipRect(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(top: 14, right: 8),
+          physics: const NeverScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(
+              count,
+              (index) => SizedBox(
+                height: 20,
+                child: Text('${index + 1}', style: style),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -716,4 +1028,27 @@ class _HistoryEntry {
   final String sql;
   final DateTime dateTime;
   final String message;
+}
+
+class _SmallIconBtn extends StatelessWidget {
+  const _SmallIconBtn({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+ 
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A2638),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: const Color(0x18FFFFFF)),
+        ),
+        child: Icon(icon, size: 16, color: const Color(0xFF8A9BB0)),
+      ),
+    );
+  }
 }
