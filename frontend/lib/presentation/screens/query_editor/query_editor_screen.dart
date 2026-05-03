@@ -87,7 +87,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Future<void> _execute() async {
-    final sql = _sqlController.text.trim();
+    final sql = _cleanSql(_sqlController.text);
     if (sql.isEmpty) {
       _addMessage(QeStrings.noSqlToRun);
       return;
@@ -151,7 +151,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   void _formatSql() {
-    var sql = _sqlController.text;
+    var sql = _cleanSql(_sqlController.text);
     final replacements = <String, String>{
       ' select ': '\nSELECT ',
       ' from ': '\nFROM ',
@@ -445,6 +445,17 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     );
   }
 
+
+  String _cleanSql(String sql) {
+    return sql
+        .replaceAll('\uFEFF', '')
+        .replaceAll('\u200B', '')
+        .replaceAll('\u200C', '')
+        .replaceAll('\u200D', '')
+        .replaceAll('\u00A0', ' ')
+        .trim();
+  }
+
   bool _isDataModificationStatement(String sql) {
     final firstWord = _firstSqlWord(sql);
     return const {
@@ -468,7 +479,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   String _firstSqlWord(String sql) {
-    var cleaned = sql.trimLeft();
+    var cleaned = _cleanSql(sql).trimLeft();
     while (cleaned.startsWith('--')) {
       final end = cleaned.indexOf('\n');
       if (end < 0) return '';

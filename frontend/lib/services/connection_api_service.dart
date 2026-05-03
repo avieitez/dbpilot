@@ -379,7 +379,7 @@ class ConnectionApiService {
   }) async {
     final response = await _post(Uri.parse('$_baseUrl/api/v1/execute-query'), {
       'connection': request.toJson(),
-      'sql': sql,
+      'sql': _cleanSql(sql),
       'limit': limit,
       'allowDataModification': allowDataModification,
     });
@@ -399,12 +399,31 @@ class ConnectionApiService {
 
   Map<String, dynamic> _decode(http.Response response) {
     if (response.body.isEmpty) return <String, dynamic>{};
-    return jsonDecode(response.body) as Map<String, dynamic>;
+
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return <String, dynamic>{'message': decoded.toString()};
+    } on FormatException {
+      return <String, dynamic>{'message': response.body};
+    }
   }
 
   String _errorMessage(http.Response response) {
     final data = _decode(response);
-    return (data['detail'] ?? data['message'] ?? response.body).toString();
+    final message = (data['detail'] ?? data['message'] ?? response.body).toString();
+    if (message.trim().isEmpty) return 'HTTP ${response.statusCode} error';
+    return message;
+  }
+
+  String _cleanSql(String sql) {
+    return sql
+        .replaceAll('\uFEFF', '')
+        .replaceAll('\u200B', '')
+        .replaceAll('\u200C', '')
+        .replaceAll('\u200D', '')
+        .replaceAll('\u00A0', ' ')
+        .trim();
   }
 
   void dispose() => _client.close();
