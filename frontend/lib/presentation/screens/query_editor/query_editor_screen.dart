@@ -6,57 +6,6 @@ import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
 import '../../../core/strings/strings.dart';
 
-
-class SqlSyntaxTextEditingController extends TextEditingController {
-  SqlSyntaxTextEditingController({super.text});
-
-  static final RegExp _tokenPattern = RegExp(
-    r"(--[^\n]*|'(?:''|[^'])*'|\b(?:SELECT|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AND|OR|GROUP|BY|ORDER|HAVING|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|PROCEDURE|FUNCTION|EXEC|EXECUTE|DISTINCT|TOP|LIMIT|OFFSET|AS|IN|IS|NULL|NOT|BETWEEN|LIKE|CASE|WHEN|THEN|ELSE|END|UNION|ALL|COUNT|SUM|AVG|MIN|MAX)\b|\b\d+(?:\.\d+)?\b|[(),.;=*<>+-])",
-    caseSensitive: false,
-  );
-
-  @override
-  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
-    final colors = Theme.of(context).colorScheme;
-    final baseStyle = style ?? const TextStyle();
-    final spans = <TextSpan>[];
-    var currentIndex = 0;
-
-    for (final match in _tokenPattern.allMatches(text)) {
-      if (match.start > currentIndex) {
-        spans.add(TextSpan(text: text.substring(currentIndex, match.start), style: baseStyle));
-      }
-      final token = match.group(0)!;
-      final upper = token.toUpperCase();
-      final TextStyle tokenStyle;
-      if (token.startsWith('--')) {
-        tokenStyle = baseStyle.copyWith(color: colors.onSurfaceVariant.withOpacity(0.72), fontStyle: FontStyle.italic);
-      } else if (token.startsWith("'")) {
-        tokenStyle = baseStyle.copyWith(color: colors.tertiary, fontWeight: FontWeight.w700);
-      } else if (RegExp(r'^\d').hasMatch(token)) {
-        tokenStyle = baseStyle.copyWith(color: colors.secondary, fontWeight: FontWeight.w700);
-      } else if (RegExp(r'^[(),.;=*<>+\-]$').hasMatch(token)) {
-        tokenStyle = baseStyle.copyWith(color: colors.outline);
-      } else if (_keywords.contains(upper)) {
-        tokenStyle = baseStyle.copyWith(color: colors.primary, fontWeight: FontWeight.w800);
-      } else {
-        tokenStyle = baseStyle;
-      }
-      spans.add(TextSpan(text: token, style: tokenStyle));
-      currentIndex = match.end;
-    }
-    if (currentIndex < text.length) {
-      spans.add(TextSpan(text: text.substring(currentIndex), style: baseStyle));
-    }
-    return TextSpan(style: baseStyle, children: spans);
-  }
-
-  static const Set<String> _keywords = {
-    'SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','OUTER','ON','AND','OR','GROUP','BY','ORDER','HAVING','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','ALTER','DROP','TABLE','VIEW','PROCEDURE','FUNCTION','EXEC','EXECUTE','DISTINCT','TOP','LIMIT','OFFSET','AS','IN','IS','NULL','NOT','BETWEEN','LIKE','CASE','WHEN','THEN','ELSE','END','UNION','ALL','COUNT','SUM','AVG','MIN','MAX'
-  };
-}
-
-
 class QueryEditorScreen extends StatefulWidget {
   const QueryEditorScreen({
     super.key,
@@ -82,16 +31,13 @@ class QueryEditorScreen extends StatefulWidget {
 }
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
-  late final TextEditingController _sqlController;
+  late final _SqlTextEditingController _sqlController;
   late final FocusNode _editorFocusNode;
-  late final ScrollController _editorScrollController;
-  late final ScrollController _lineNumberScrollController;
   late final ConnectionApiService _apiService;
 
   int _selectedTab = 0;
   int _limit = 100;
   int _timeoutSeconds = 30;
-  bool _transactionEnabled = false;
   bool _safeMode = true;
   bool _executing = false;
   Duration? _lastDuration;
@@ -105,10 +51,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     super.initState();
     _apiService = ConnectionApiService();
     _editorFocusNode = FocusNode();
-    _editorScrollController = ScrollController();
-    _lineNumberScrollController = ScrollController();
-    _editorScrollController.addListener(_syncLineNumbers);
-    _sqlController = SqlSyntaxTextEditingController(text: _initialSql());
+    _sqlController = _SqlTextEditingController(text: _initialSql());
   }
 
   String _initialSql() {
@@ -119,9 +62,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final objectName = widget.objectName?.trim();
     final schemaName = widget.schemaName?.trim();
 
-    if (objectName == null || objectName.isEmpty) {
-      return '';
-    }
+    if (objectName == null || objectName.isEmpty) return '';
 
     final qualifiedName = (schemaName != null && schemaName.isNotEmpty)
         ? '$schemaName.$objectName'
@@ -177,7 +118,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         limit: _limit,
         allowDataModification: !_safeMode,
         timeoutSeconds: _timeoutSeconds,
-      );
+      ).timeout(Duration(seconds: _timeoutSeconds));
+
       watch.stop();
       if (!mounted) return;
       setState(() {
@@ -188,22 +130,25 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         if (_history.length > 50) _history.removeLast();
       });
       _addMessage(QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount));
-    } catch (error) {
-      watch.stop();
+    } on TimeoutException {
       if (!mounted) return;
       setState(() {
         _executing = false;
-        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+        _selectedTab = 2;
+        _errorMessage = 'Query timed out after $_timeoutSeconds seconds.';
+      });
+      _addMessage('ERROR: Query timed out after $_timeoutSeconds seconds.');
+    } catch (error) {
+      watch.stop();
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Exception: ', '');
+      setState(() {
+        _executing = false;
+        _errorMessage = message;
         _selectedTab = 2;
       });
-      _addMessage('ERROR: ${error.toString().replaceFirst('Exception: ', '')}');
+      _addMessage('ERROR: $message');
     }
-  }
-
-  String _formatDateTime(DateTime value) {
-    final date = '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
-    final time = '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
-    return '$date $time';
   }
 
   void _addMessage(String message) {
@@ -213,54 +158,53 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     });
   }
 
+  String _formatDateTime(DateTime value) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  }
+
   void _formatSql() {
-    var sql = _sqlController.text;
+    var sql = _sqlController.text.trim();
+    if (sql.isEmpty) return;
+
     final replacements = <String, String>{
-      ' select ': '\nSELECT ',
-      ' from ': '\nFROM ',
-      ' where ': '\nWHERE ',
-      ' join ': '\nJOIN ',
-      ' inner join ': '\nINNER JOIN ',
-      ' left join ': '\nLEFT JOIN ',
-      ' right join ': '\nRIGHT JOIN ',
-      ' group by ': '\nGROUP BY ',
-      ' order by ': '\nORDER BY ',
-      ' having ': '\nHAVING ',
-      ' values ': '\nVALUES ',
-      ' set ': '\nSET ',
+      r'\bselect\b': 'SELECT',
+      r'\bfrom\b': '\nFROM',
+      r'\bwhere\b': '\nWHERE',
+      r'\binner\s+join\b': '\nINNER JOIN',
+      r'\bleft\s+join\b': '\nLEFT JOIN',
+      r'\bright\s+join\b': '\nRIGHT JOIN',
+      r'\bjoin\b': '\nJOIN',
+      r'\bgroup\s+by\b': '\nGROUP BY',
+      r'\border\s+by\b': '\nORDER BY',
+      r'\bhaving\b': '\nHAVING',
+      r'\bvalues\b': '\nVALUES',
+      r'\bset\b': '\nSET',
     };
-    sql = ' $sql ';
-    replacements.forEach((key, value) {
-      sql = sql.replaceAll(RegExp(key, caseSensitive: false), value);
+
+    replacements.forEach((pattern, replacement) {
+      sql = sql.replaceAll(RegExp(pattern, caseSensitive: false), replacement);
     });
-    _sqlController.text = sql.trim();
+
+    _sqlController.text = sql.replaceAll(RegExp(r'\n{2,}'), '\n').trim();
     _addMessage(QeStrings.sqlFormatted);
+    _editorFocusNode.requestFocus();
   }
 
   void _clearEditor() {
     _sqlController.clear();
     _addMessage(QeStrings.editorCleared);
+    _editorFocusNode.requestFocus();
   }
 
   void _loadHistory(_HistoryEntry entry) {
     _sqlController.text = entry.sql;
     setState(() => _selectedTab = 0);
-  }
-
-  void _syncLineNumbers() {
-    if (!_lineNumberScrollController.hasClients || !_editorScrollController.hasClients) return;
-    final max = _lineNumberScrollController.position.maxScrollExtent;
-    final target = _editorScrollController.offset.clamp(0.0, max);
-    if ((_lineNumberScrollController.offset - target).abs() > 0.5) {
-      _lineNumberScrollController.jumpTo(target);
-    }
+    _editorFocusNode.requestFocus();
   }
 
   @override
   void dispose() {
-    _editorScrollController.removeListener(_syncLineNumbers);
-    _editorScrollController.dispose();
-    _lineNumberScrollController.dispose();
     _editorFocusNode.dispose();
     _sqlController.dispose();
     _apiService.dispose();
@@ -271,10 +215,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         titleSpacing: 0,
         title: Column(
@@ -285,8 +228,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           ],
         ),
         actions: [
-          IconButton(onPressed: _formatSql, icon: const Icon(Icons.auto_fix_high_rounded), tooltip: 'Format SQL'),
-          IconButton(onPressed: _clearEditor, icon: const Icon(Icons.delete_sweep_rounded), tooltip: 'Clear'),
+          IconButton(onPressed: _formatSql, icon: const Icon(Icons.auto_fix_high_rounded), tooltip: QeStrings.formatSql),
+          IconButton(onPressed: _clearEditor, icon: const Icon(Icons.delete_sweep_rounded), tooltip: AppStrings.clear),
         ],
       ),
       body: SafeArea(
@@ -297,24 +240,24 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               child: IndexedStack(
                 index: _selectedTab,
                 children: [
-                  _buildEditor(theme, colors, keyboardOpen),
+                  _buildEditor(theme, colors),
                   _buildResults(theme, colors),
                   _buildMessages(theme, colors),
                   _buildHistory(theme, colors),
                 ],
               ),
             ),
-            if (!keyboardOpen) _buildBottomBar(theme, colors),
+            _buildBottomBar(theme, colors),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildEditor(ThemeData theme, ColorScheme colors, bool keyboardOpen) {
+  Widget _buildEditor(ThemeData theme, ColorScheme colors) {
     return Column(
       children: [
-        if (!keyboardOpen) _buildToolbar(theme, colors),
+        _buildToolbar(theme, colors),
         Expanded(
           child: Container(
             margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -326,12 +269,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _LineNumbers(controller: _sqlController, scrollController: _lineNumberScrollController),
+                _LineNumbers(controller: _sqlController),
                 Expanded(
                   child: TextField(
                     focusNode: _editorFocusNode,
                     controller: _sqlController,
-                    scrollController: _editorScrollController,
                     expands: true,
                     maxLines: null,
                     minLines: null,
@@ -339,9 +281,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     keyboardType: TextInputType.multiline,
                     autocorrect: false,
                     enableSuggestions: false,
-                    scrollPadding: const EdgeInsets.only(bottom: 120),
+                    scrollPadding: const EdgeInsets.only(bottom: 180),
                     onTapOutside: (_) {},
-                    style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45),
+                    style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45, letterSpacing: 0.2),
                     decoration: const InputDecoration(
                       hintText: QeStrings.sqlHint,
                       border: InputBorder.none,
@@ -353,7 +295,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             ),
           ),
         ),
-        if (!keyboardOpen) _buildQuickKeys(colors),
+        _buildQuickKeys(colors),
       ],
     );
   }
@@ -374,7 +316,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildQuickKeys(ColorScheme colors) {
-    const keys = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'GROUP BY', 'ORDER BY', 'LIMIT', 'TOP'];
+    const keys = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'GROUP BY', 'ORDER BY'];
     return SizedBox(
       height: 44,
       child: ListView.separated(
@@ -418,65 +360,33 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: _safeMode
-                    ? colors.surfaceContainerHighest.withOpacity(0.45)
-                    : colors.errorContainer.withOpacity(0.7),
+                color: _safeMode ? colors.surfaceContainerHighest.withOpacity(0.45) : colors.errorContainer.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _safeMode
-                      ? colors.outlineVariant.withOpacity(0.5)
-                      : colors.error.withOpacity(0.6),
-                ),
+                border: Border.all(color: _safeMode ? colors.outlineVariant.withOpacity(0.5) : colors.error.withOpacity(0.6)),
               ),
               child: Row(
                 children: [
-                  Icon(
-                    _safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded,
-                    color: _safeMode ? colors.primary : colors.error,
-                  ),
+                  Icon(_safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded, color: _safeMode ? colors.primary : colors.error),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(QeStrings.safeMode, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
-                        Text(
-                          _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
-                        ),
+                        Text(_safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
                       ],
                     ),
                   ),
-                  Switch(
-                    value: _safeMode,
-                    onChanged: (value) => setState(() => _safeMode = value),
-                  ),
+                  Switch(value: _safeMode, onChanged: (value) => setState(() => _safeMode = value)),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(
-                  child: _DropDownBox<int>(
-                    label: QeStrings.limit,
-                    value: _limit,
-                    values: const [50, 100, 250, 500],
-                    onChanged: (v) => setState(() => _limit = v),
-                  ),
-                ),
+                Expanded(child: _DropDownBox<int>(label: QeStrings.limit, value: _limit, values: const [50, 100, 250, 500], onChanged: (v) => setState(() => _limit = v))),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: _DropDownBox<int>(
-                    label: QeStrings.timeout,
-                    value: _timeoutSeconds,
-                    values: const [10, 30, 60],
-                    suffix: 's',
-                    onChanged: (v) => setState(() => _timeoutSeconds = v),
-                  ),
-                ),
+                Expanded(child: _DropDownBox<int>(label: QeStrings.timeout, value: _timeoutSeconds, values: const [10, 30, 60], suffix: 's', onChanged: (v) => setState(() => _timeoutSeconds = v))),
               ],
             ),
             const SizedBox(height: 8),
@@ -484,9 +394,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: _executing ? null : _execute,
-                icon: _executing
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.play_arrow_rounded),
+                icon: _executing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow_rounded),
                 label: const Text(QeStrings.executeQuery),
               ),
             ),
@@ -496,26 +404,130 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     );
   }
 
+  Widget _buildResults(ThemeData theme, ColorScheme colors) {
+    if (_executing) return const Center(child: CircularProgressIndicator());
+    if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
+    final result = _result;
+    if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
+    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
+
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          decoration: BoxDecoration(color: colors.primaryContainer.withOpacity(0.18), border: Border(bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)))),
+          child: Row(
+            children: [
+              Expanded(child: Text('Results — ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${(_lastDuration!.inMilliseconds / 1000).toStringAsFixed(2)} sec'}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200))),
+              IconButton(onPressed: () => _addMessage(QeStrings.exportCsvPending), icon: const Icon(Icons.download_rounded)),
+              IconButton(onPressed: () => setState(() {}), icon: const Icon(Icons.refresh_rounded)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SingleChildScrollView(
+              child: DataTable(
+                headingRowColor: MaterialStateProperty.all(colors.surfaceContainerHighest.withOpacity(0.65)),
+                dataRowColor: MaterialStateProperty.all(colors.primaryContainer.withOpacity(0.10)),
+                border: TableBorder.all(color: colors.outlineVariant.withOpacity(0.35), width: 0.8),
+                headingRowHeight: 44,
+                dataRowMinHeight: 44,
+                dataRowMaxHeight: 58,
+                columns: [
+                  DataColumn(label: Text('#', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200))),
+                  ...result.columns.map((c) => DataColumn(label: Text(c, style: TextStyle(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200)))),
+                ],
+                rows: List.generate(result.rows.length, (index) {
+                  final row = result.rows[index];
+                  return DataRow(cells: [
+                    DataCell(Text('${index + 1}', style: TextStyle(color: colors.onSurfaceVariant))),
+                    ...row.map((v) => DataCell(SelectableText(v?.toString() ?? 'NULL'))),
+                  ]);
+                }),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMessages(ThemeData theme, ColorScheme colors) {
+    if (_messages.isEmpty) return const _EmptyPanel(icon: Icons.message_outlined, title: QeStrings.noMessagesTitle, message: QeStrings.noMessagesMessage);
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: _messages.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final text = _messages[index];
+        final isError = text.contains('ERROR');
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: isError ? colors.errorContainer.withOpacity(0.30) : Colors.green.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isError ? colors.error.withOpacity(0.45) : Colors.green.withOpacity(0.35)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(isError ? Icons.error_outline_rounded : Icons.check_rounded, color: isError ? colors.error : Colors.greenAccent.shade200),
+              const SizedBox(width: 10),
+              Expanded(child: SelectableText(text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.35))),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistory(ThemeData theme, ColorScheme colors) {
+    if (_history.isEmpty) return const _EmptyPanel(icon: Icons.history_rounded, title: QeStrings.noHistoryTitle, message: QeStrings.noHistoryMessage);
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: _history.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final entry = _history[index];
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colors.primaryContainer.withOpacity(0.22),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.primary.withOpacity(0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('Query #${_history.length - index}', style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900, color: colors.onSurfaceVariant)),
+                  const Spacer(),
+                  Text(_formatDateTime(entry.dateTime), style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SelectableText(entry.sql, maxLines: 6, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.35)),
+              const SizedBox(height: 10),
+              TextButton.icon(onPressed: () => _loadHistory(entry), icon: const Icon(Icons.keyboard_return_rounded), label: const Text(QeStrings.loadQuery)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   bool _isDataModificationStatement(String sql) {
     final firstWord = _firstSqlWord(sql);
-    return const {
-      'insert',
-      'update',
-      'delete',
-      'merge',
-      'create',
-      'alter',
-      'drop',
-      'truncate',
-      'exec',
-      'execute',
-    }.contains(firstWord);
+    return const {'insert', 'update', 'delete', 'merge', 'create', 'alter', 'drop', 'truncate', 'exec', 'execute'}.contains(firstWord);
   }
 
   bool _isDangerousStatement(String sql) {
     final firstWord = _firstSqlWord(sql);
-    return const {'insert', 'update', 'delete', 'merge', 'drop', 'truncate', 'alter', 'create', 'exec', 'execute'}
-        .contains(firstWord);
+    return const {'insert', 'update', 'delete', 'merge', 'drop', 'truncate', 'alter', 'create', 'exec', 'execute'}.contains(firstWord);
   }
 
   String _firstSqlWord(String sql) {
@@ -537,91 +549,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         title: Text(QeStrings.confirmExecutionTitle),
         content: Text(QeStrings.confirmExecutionMessage(firstWord)),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(QeStrings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text(QeStrings.executeQuery),
-          ),
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text(QeStrings.cancel)),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text(QeStrings.executeQuery)),
         ],
       ),
     );
     return result == true;
-  }
-
-  Widget _buildResults(ThemeData theme, ColorScheme colors) {
-    if (_executing) return const Center(child: CircularProgressIndicator());
-    if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
-    final result = _result;
-    if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
-    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-          child: Row(
-            children: [
-              Expanded(child: Text('Results · ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${_lastDuration!.inMilliseconds} ms'}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
-              IconButton(onPressed: () => _addMessage(QeStrings.exportCsvPending), icon: const Icon(Icons.download_rounded)),
-              IconButton(onPressed: () => setState(() {}), icon: const Icon(Icons.refresh_rounded)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowHeight: 42,
-                dataRowMinHeight: 38,
-                dataRowMaxHeight: 54,
-                columns: result.columns.map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.w700)))).toList(),
-                rows: result.rows.map((row) => DataRow(cells: row.map((v) => DataCell(SelectableText(v?.toString() ?? 'NULL'))).toList())).toList(),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMessages(ThemeData theme, ColorScheme colors) {
-    if (_messages.isEmpty) return const _EmptyPanel(icon: Icons.message_outlined, title: QeStrings.noMessagesTitle, message: QeStrings.noMessagesMessage);
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: _messages.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) => ListTile(
-        dense: true,
-        leading: Icon(_messages[index].contains('ERROR') ? Icons.error_outline : Icons.info_outline),
-        title: SelectableText(_messages[index]),
-      ),
-    );
-  }
-
-  Widget _buildHistory(ThemeData theme, ColorScheme colors) {
-    if (_history.isEmpty) return const _EmptyPanel(icon: Icons.history_rounded, title: QeStrings.noHistoryTitle, message: QeStrings.noHistoryMessage);
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: _history.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final entry = _history[index];
-        return Card(
-          child: ListTile(
-            leading: const Icon(Icons.terminal_rounded),
-            title: Text(entry.sql.replaceAll('\n', ' '), maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace')),
-            subtitle: Text('${_formatDateTime(entry.dateTime)} · ${entry.message}'),
-            trailing: IconButton(icon: const Icon(Icons.upload_rounded), onPressed: () => _loadHistory(entry)),
-            onTap: () => _loadHistory(entry),
-          ),
-        );
-      },
-    );
   }
 }
 
@@ -659,28 +592,24 @@ class _QueryTabs extends StatelessWidget {
 }
 
 class _ToolbarButton extends StatelessWidget {
-  const _ToolbarButton({required this.icon, required this.label, required this.onTap, this.filled = false});
+  const _ToolbarButton({required this.icon, required this.label, required this.onTap});
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool filled;
 
   @override
   Widget build(BuildContext context) {
-    final labelWidget = FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Text(
-        label,
-        maxLines: 1,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w800),
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        minimumSize: const Size(0, 38),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.2),
       ),
+      onPressed: onTap,
+      icon: Icon(icon, size: 16),
+      label: FittedBox(child: Text(label)),
     );
-    final iconWidget = Icon(icon, size: 16);
-    final style = filled
-        ? FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10), tapTargetSize: MaterialTapTargetSize.shrinkWrap)
-        : OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10), tapTargetSize: MaterialTapTargetSize.shrinkWrap);
-    if (filled) return FilledButton.icon(onPressed: onTap, icon: iconWidget, label: labelWidget, style: style);
-    return OutlinedButton.icon(onPressed: onTap, icon: iconWidget, label: labelWidget, style: style);
   }
 }
 
@@ -694,20 +623,26 @@ class _DropDownBox<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.outlineVariant.withOpacity(0.6)),
+      ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Text('$label: ', style: Theme.of(context).textTheme.bodySmall),
-          DropdownButton<T>(
-            value: value,
-            underline: const SizedBox.shrink(),
-            items: values.map((v) => DropdownMenuItem<T>(value: v, child: Text('$v$suffix'))).toList(),
-            onChanged: (v) {
-              if (v != null) onChanged(v);
-            },
+          Expanded(
+            child: DropdownButton<T>(
+              value: value,
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              items: values.map((v) => DropdownMenuItem<T>(value: v, child: Text('$v$suffix'))).toList(),
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
           ),
         ],
       ),
@@ -716,9 +651,8 @@ class _DropDownBox<T> extends StatelessWidget {
 }
 
 class _LineNumbers extends StatefulWidget {
-  const _LineNumbers({required this.controller, required this.scrollController});
+  const _LineNumbers({required this.controller});
   final TextEditingController controller;
-  final ScrollController scrollController;
 
   @override
   State<_LineNumbers> createState() => _LineNumbersState();
@@ -744,33 +678,18 @@ class _LineNumbersState extends State<_LineNumbers> {
   @override
   Widget build(BuildContext context) {
     final count = ('\n'.allMatches(widget.controller.text).length + 1).clamp(1, 999).toInt();
-    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
-          fontFamily: 'monospace',
-          height: 1.45,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        );
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.45, color: Theme.of(context).colorScheme.onSurfaceVariant);
 
     return Container(
       width: 42,
-      decoration: BoxDecoration(
-        border: Border(
-          right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.4)),
-        ),
-      ),
+      decoration: BoxDecoration(border: Border(right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.4)))),
       child: ClipRect(
         child: SingleChildScrollView(
-          controller: widget.scrollController,
           padding: const EdgeInsets.only(top: 14, right: 8),
           physics: const NeverScrollableScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
-            children: List.generate(
-              count,
-              (index) => SizedBox(
-                height: 20.3,
-                child: Text('${index + 1}', style: style),
-              ),
-            ),
+            children: List.generate(count, (index) => SizedBox(height: 20, child: Text('${index + 1}', style: style))),
           ),
         ),
       ),
@@ -825,6 +744,44 @@ class _ErrorPanel extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _SqlTextEditingController extends TextEditingController {
+  _SqlTextEditingController({super.text});
+
+  static final RegExp _tokenPattern = RegExp(
+    r"(--[^\n]*|'(?:''|[^'])*'|\b(?:SELECT|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AND|OR|ORDER|BY|GROUP|HAVING|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|PROCEDURE|FUNCTION|EXEC|EXECUTE|TOP|LIMIT|OFFSET|AS|DISTINCT|NULL|IS|NOT|BETWEEN|LIKE|IN|DESC|ASC)\b|\b\d+(?:\.\d+)?\b)",
+    caseSensitive: false,
+  );
+
+  @override
+  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
+    final baseStyle = style ?? const TextStyle();
+    final spans = <TextSpan>[];
+    var index = 0;
+
+    for (final match in _tokenPattern.allMatches(text)) {
+      if (match.start > index) {
+        spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
+      }
+      final token = match.group(0)!;
+      spans.add(TextSpan(text: token, style: baseStyle.merge(_styleForToken(token))));
+      index = match.end;
+    }
+
+    if (index < text.length) {
+      spans.add(TextSpan(text: text.substring(index), style: baseStyle));
+    }
+
+    return TextSpan(style: baseStyle, children: spans);
+  }
+
+  TextStyle _styleForToken(String token) {
+    if (token.startsWith('--')) return const TextStyle(color: Color(0xFF7A8797), fontStyle: FontStyle.italic);
+    if (token.startsWith("'")) return const TextStyle(color: Color(0xFFFFB86C));
+    if (RegExp(r'^\d').hasMatch(token)) return const TextStyle(color: Color(0xFFFFD866));
+    return const TextStyle(color: Color(0xFF65B8FF), fontWeight: FontWeight.w700);
   }
 }
 
