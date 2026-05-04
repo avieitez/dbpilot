@@ -1,4 +1,5 @@
 import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2 import sql as pg_sql
 
 
@@ -13,6 +14,14 @@ def _connect(payload):
         connect_timeout=5,
     )
 
+
+
+def _normalize_timeout_seconds(timeout_seconds: int | None) -> int:
+    try:
+        value = int(timeout_seconds or 30)
+    except (TypeError, ValueError):
+        value = 30
+    return max(1, min(value, 600))
 
 def _serialize_value(value):
     if value is None:
@@ -205,10 +214,12 @@ def get_postgres_object_parameters(payload, object_name: str, object_type: str, 
 def execute_postgres_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
     conn = None
     cur = None
+    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     try:
         conn = _connect(payload)
         cur = conn.cursor()
-        cur.execute("SET statement_timeout = %s", (int(timeout_seconds) * 1000,))
+        # PostgreSQL expects statement_timeout in milliseconds.
+        cur.execute("SET LOCAL statement_timeout = %s", (timeout_seconds * 1000,))
         cur.execute(sql)
         if cur.description is None:
             affected = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
@@ -221,6 +232,10 @@ def execute_postgres_query(payload, sql: str, limit: int, timeout_seconds: int =
                 break
             rows.append([_serialize_value(value) for value in row])
         return columns, rows
+    except pg_errors.QueryCanceled as exc:
+        if conn is not None:
+            conn.rollback()
+        raise TimeoutError(f"Query timed out after {timeout_seconds} seconds.") from exc
     except Exception:
         if conn is not None:
             conn.rollback()

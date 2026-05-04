@@ -1,7 +1,16 @@
 import pymssql
 
 
+
+def _normalize_timeout_seconds(timeout_seconds: int | None) -> int:
+    try:
+        value = int(timeout_seconds or 30)
+    except (TypeError, ValueError):
+        value = 30
+    return max(1, min(value, 600))
+
 def _connect(payload, timeout_seconds: int = 30):
+    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     database = payload.database or "master"
     return pymssql.connect(
         server=payload.host,
@@ -202,6 +211,7 @@ def get_sqlserver_object_parameters(payload, object_name: str, object_type: str,
 def execute_sqlserver_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
     conn = None
     cursor = None
+    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     try:
         conn = _connect(payload, timeout_seconds)
         cursor = conn.cursor()
@@ -217,9 +227,12 @@ def execute_sqlserver_query(payload, sql: str, limit: int, timeout_seconds: int 
                 break
             rows.append([_serialize_value(value) for value in row])
         return columns, rows
-    except Exception:
+    except Exception as exc:
         if conn is not None:
             conn.rollback()
+        message = str(exc).lower()
+        if "timeout" in message or "timed out" in message or "query cancelled" in message:
+            raise TimeoutError(f"Query timed out after {timeout_seconds} seconds.") from exc
         raise
     finally:
         if cursor is not None:

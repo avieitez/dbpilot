@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 
 from app.schemas.connections import (
@@ -22,9 +22,9 @@ service = DbExplorerService()
 class QueryExecuteRequest(BaseModel):
     connection: ConnectionTestRequest
     sql: str
-    limit: int = 100
+    limit: int = Field(default=100, ge=1, le=5000)
     allowDataModification: bool = False
-    timeoutSeconds: int = 30
+    timeoutSeconds: int = Field(default=30, ge=1, le=600)
 
 class QueryExecuteResponse(BaseModel):
     columns: list[str]
@@ -88,7 +88,11 @@ def execute_query(payload: QueryExecuteRequest):
             payload.timeoutSeconds,
         )
         return QueryExecuteResponse(columns=columns, rows=rows, rowCount=len(rows), message=f"{len(rows)} rows")
+    except TimeoutError as exc:
+        raise HTTPException(status_code=408, detail=str(exc)) from exc
     except DbExplorerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

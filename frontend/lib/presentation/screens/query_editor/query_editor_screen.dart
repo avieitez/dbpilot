@@ -237,7 +237,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           ],
         ),
         actions: [
-          IconButton(onPressed: _formatSql, icon: const Icon(Icons.auto_fix_high_rounded), tooltip: QeStrings.formatSql),
           IconButton(onPressed: _clearEditor, icon: const Icon(Icons.delete_sweep_rounded), tooltip: AppStrings.clear),
         ],
       ),
