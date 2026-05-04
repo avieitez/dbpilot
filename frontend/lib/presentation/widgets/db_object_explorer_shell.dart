@@ -251,42 +251,23 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   String _defaultQuery(DbExplorerObject object) {
-    final existing = object.effectiveQuery.trim();
-    if (existing.isNotEmpty) return existing;
-
     final objectType = (object.objectType ?? '').toLowerCase();
-    final provider = widget.connection.provider.apiValue;
+    final schema = object.schemaName?.trim();
+    final plainQualified = schema == null || schema.isEmpty ? object.name : '$schema.${object.name}';
+    final sqlServerQualified = schema == null || schema.isEmpty ? '[${object.name}]' : '[$schema].[${object.name}]';
 
     if (objectType == 'procedure') {
-      if (provider == 'postgresql') {
-        return 'SELECT *\nFROM ${_quotePostgresName(object)}();';
-      }
-      return 'EXEC ${_quoteSqlServerName(object)};';
+      if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) return object.previewQuery!;
+      return widget.connection.provider.apiValue == 'postgresql'
+          ? 'CALL $plainQualified();'
+          : 'EXEC $plainQualified;';
     }
+    if (objectType == 'function') return 'SELECT *\nFROM $plainQualified();';
 
-    if (provider == 'postgresql') {
-      return 'SELECT *\nFROM ${_quotePostgresName(object)}\nLIMIT 50;';
+    if (widget.connection.provider.apiValue == 'sqlserver') {
+      return 'SELECT *\nFROM $sqlServerQualified;';
     }
-
-    if (provider == 'oracle') {
-      return 'SELECT *\nFROM ${object.qualifiedName}\nFETCH FIRST 50 ROWS ONLY;';
-    }
-
-    return 'SELECT TOP 50 *\nFROM ${_quoteSqlServerName(object)};';
-  }
-
-  String _quotePostgresName(DbExplorerObject object) {
-    final schema = object.schemaName?.trim();
-    final name = object.name.replaceAll('"', '""');
-    if (schema == null || schema.isEmpty) return '"$name"';
-    return '"${schema.replaceAll('"', '""')}"."$name"';
-  }
-
-  String _quoteSqlServerName(DbExplorerObject object) {
-    final schema = (object.schemaName?.trim().isNotEmpty ?? false) ? object.schemaName!.trim() : 'dbo';
-    final safeSchema = schema.replaceAll('[', '').replaceAll(']', '');
-    final safeName = object.name.replaceAll('[', '').replaceAll(']', '');
-    return '[$safeSchema].[$safeName]';
+    return 'SELECT *\nFROM $plainQualified;';
   }
 
   Future<void> _loadStructure(DbExplorerObject object) async {

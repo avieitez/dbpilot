@@ -376,13 +376,15 @@ class ConnectionApiService {
     String sql, {
     int limit = 100,
     bool allowDataModification = false,
+    int timeoutSeconds = 30,
   }) async {
     final response = await _post(Uri.parse('$_baseUrl/api/v1/execute-query'), {
       'connection': request.toJson(),
-      'sql': _cleanSql(sql),
+      'sql': sql,
       'limit': limit,
       'allowDataModification': allowDataModification,
-    });
+      'timeoutSeconds': timeoutSeconds,
+    }).timeout(Duration(seconds: timeoutSeconds + 2));
     if (response.statusCode != 200) {
       throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
     }
@@ -399,31 +401,12 @@ class ConnectionApiService {
 
   Map<String, dynamic> _decode(http.Response response) {
     if (response.body.isEmpty) return <String, dynamic>{};
-
-    try {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return <String, dynamic>{'message': decoded.toString()};
-    } on FormatException {
-      return <String, dynamic>{'message': response.body};
-    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   String _errorMessage(http.Response response) {
     final data = _decode(response);
-    final message = (data['detail'] ?? data['message'] ?? response.body).toString();
-    if (message.trim().isEmpty) return 'HTTP ${response.statusCode} error';
-    return message;
-  }
-
-  String _cleanSql(String sql) {
-    return sql
-        .replaceAll('\uFEFF', '')
-        .replaceAll('\u200B', '')
-        .replaceAll('\u200C', '')
-        .replaceAll('\u200D', '')
-        .replaceAll('\u00A0', ' ')
-        .trim();
+    return (data['detail'] ?? data['message'] ?? response.body).toString();
   }
 
   void dispose() => _client.close();
