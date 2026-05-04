@@ -129,7 +129,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         _history.insert(0, _HistoryEntry(sql: sql, dateTime: DateTime.now(), message: result.message));
         if (_history.length > 50) _history.removeLast();
       });
-      _addMessage(QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount));
+      _addMessage(
+        QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount),
+        includeExecutionSettings: true,
+      );
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
@@ -151,16 +154,22 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
   }
 
-  void _addMessage(String message) {
+  void _addMessage(String message, {bool includeExecutionSettings = false}) {
+    final details = includeExecutionSettings
+        ? '$message\n${QeStrings.limit}: $_limit · ${QeStrings.timeout}: ${_timeoutSeconds}s'
+        : message;
+
     setState(() {
-      _messages.insert(0, '${_formatDateTime(DateTime.now())} · $message');
+      _messages.insert(0, '${_formatDateTime(DateTime.now())} · $details');
       if (_messages.length > 100) _messages.removeLast();
     });
   }
 
   String _formatDateTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
-    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final period = value.hour >= 12 ? 'PM' : 'AM';
+    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
   }
 
   void _formatSql() {
@@ -456,27 +465,86 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildMessages(ThemeData theme, ColorScheme colors) {
-    if (_messages.isEmpty) return const _EmptyPanel(icon: Icons.message_outlined, title: QeStrings.noMessagesTitle, message: QeStrings.noMessagesMessage);
+    if (_messages.isEmpty) {
+      return const _EmptyPanel(
+        icon: Icons.message_outlined,
+        title: QeStrings.noMessagesTitle,
+        message: QeStrings.noMessagesMessage,
+      );
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: _messages.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final text = _messages[index];
-        final isError = text.contains('ERROR');
+        final parsed = _ParsedMessage.fromRaw(_messages[index]);
+        final isError = parsed.kind == _MessageKind.error;
+        final isWarning = parsed.kind == _MessageKind.warning;
+        final accentColor = isError
+            ? colors.error
+            : isWarning
+                ? Colors.orangeAccent
+                : Colors.greenAccent.shade200;
+        final borderColor = isError
+            ? colors.error.withOpacity(0.45)
+            : isWarning
+                ? Colors.orangeAccent.withOpacity(0.42)
+                : Colors.green.withOpacity(0.40);
+        final backgroundColor = isError
+            ? colors.errorContainer.withOpacity(0.30)
+            : isWarning
+                ? const Color(0xFF2A210F)
+                : const Color(0xFF0D2318);
+
         return Container(
-          padding: const EdgeInsets.all(14),
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
           decoration: BoxDecoration(
-            color: isError ? colors.errorContainer.withOpacity(0.30) : Colors.green.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isError ? colors.error.withOpacity(0.45) : Colors.green.withOpacity(0.35)),
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: borderColor, width: 1.2),
           ),
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(isError ? Icons.error_outline_rounded : Icons.check_rounded, color: isError ? colors.error : Colors.greenAccent.shade200),
-              const SizedBox(width: 10),
-              Expanded(child: SelectableText(text, style: theme.textTheme.bodyMedium?.copyWith(height: 1.35))),
+              Row(
+                children: [
+                  Icon(parsed.icon, size: 21, color: accentColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      parsed.title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SelectableText(
+                parsed.dateTime,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: const Color(0xFF9AA6B8),
+                  fontFamily: 'monospace',
+                  height: 1.45,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              if (parsed.body.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SelectableText(
+                  parsed.body,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: const Color(0xFF9AA6B8),
+                    fontFamily: 'monospace',
+                    height: 1.45,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -485,34 +553,93 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildHistory(ThemeData theme, ColorScheme colors) {
-    if (_history.isEmpty) return const _EmptyPanel(icon: Icons.history_rounded, title: QeStrings.noHistoryTitle, message: QeStrings.noHistoryMessage);
+    if (_history.isEmpty) {
+      return const _EmptyPanel(
+        icon: Icons.history_rounded,
+        title: QeStrings.noHistoryTitle,
+        message: QeStrings.noHistoryMessage,
+      );
+    }
+ 
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: _history.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final entry = _history[index];
+ 
         return Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
+            // Match screenshot: dark blue-grey card
             color: colors.primaryContainer.withOpacity(0.22),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colors.primary.withOpacity(0.25)),
+            border: Border.all(
+              color: colors.primary.withOpacity(0.25),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Header: "Query #N"  +  full date/time ──
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text('Query #${_history.length - index}', style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900, color: colors.onSurfaceVariant)),
+                  Text(
+                    'Query #${_history.length - index}',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: colors.onSurface,   // white / bright — matches screenshot
+                    ),
+                  ),
                   const Spacer(),
-                  Text(_formatDateTime(entry.dateTime), style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+                  // Full date + time: "YYYY-MM-DD HH:MM AM/PM"
+                  Text(
+                    _formatDateTime(entry.dateTime),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 10),
-              SelectableText(entry.sql, maxLines: 6, style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.35)),
-              const SizedBox(height: 10),
-              TextButton.icon(onPressed: () => _loadHistory(entry), icon: const Icon(Icons.keyboard_return_rounded), label: const Text(QeStrings.loadQuery)),
+ 
+              const SizedBox(height: 12),
+ 
+              // ── SQL body — monospace, no line limit (full query visible) ──
+              SelectableText(
+                entry.sql,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontFamily: 'monospace',
+                  height: 1.45,
+                  color: colors.onSurface,
+                ),
+              ),
+ 
+              const SizedBox(height: 14),
+ 
+              // ── "← LOAD QUERY" — uppercase, matches screenshot ──
+              GestureDetector(
+                onTap: () => _loadHistory(entry),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.keyboard_return_rounded,
+                      size: 16,
+                      color: colors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      QeStrings.loadQuery.toUpperCase(),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colors.primary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         );
@@ -782,6 +909,69 @@ class _SqlTextEditingController extends TextEditingController {
     if (token.startsWith("'")) return const TextStyle(color: Color(0xFFFFB86C));
     if (RegExp(r'^\d').hasMatch(token)) return const TextStyle(color: Color(0xFFFFD866));
     return const TextStyle(color: Color(0xFF65B8FF), fontWeight: FontWeight.w700);
+  }
+}
+
+enum _MessageKind { success, warning, error, info }
+
+class _ParsedMessage {
+  const _ParsedMessage({
+    required this.dateTime,
+    required this.title,
+    required this.body,
+    required this.kind,
+    required this.icon,
+  });
+
+  final String dateTime;
+  final String title;
+  final String body;
+  final _MessageKind kind;
+  final IconData icon;
+
+  factory _ParsedMessage.fromRaw(String raw) {
+    final parts = raw.split(' · ');
+    final dateTime = parts.isNotEmpty ? parts.first.trim() : '';
+    final message = parts.length > 1 ? parts.sublist(1).join(' · ').trim() : raw.trim();
+    final lower = message.toLowerCase();
+
+    if (lower.startsWith('error:')) {
+      return _ParsedMessage(
+        dateTime: dateTime,
+        title: 'Error',
+        body: message.replaceFirst(RegExp(r'^ERROR:\s*', caseSensitive: false), ''),
+        kind: _MessageKind.error,
+        icon: Icons.error_outline_rounded,
+      );
+    }
+
+    if (lower.contains('disabled') || lower.contains('cancelled') || lower.contains('blocked')) {
+      return _ParsedMessage(
+        dateTime: dateTime,
+        title: 'Warning',
+        body: message,
+        kind: _MessageKind.warning,
+        icon: Icons.warning_amber_rounded,
+      );
+    }
+
+    if (lower.startsWith('query executed')) {
+      return _ParsedMessage(
+        dateTime: dateTime,
+        title: 'Query executed',
+        body: message,
+        kind: _MessageKind.success,
+        icon: Icons.check_rounded,
+      );
+    }
+
+    return _ParsedMessage(
+      dateTime: dateTime,
+      title: 'Message',
+      body: message,
+      kind: _MessageKind.info,
+      icon: Icons.info_outline_rounded,
+    );
   }
 }
 
