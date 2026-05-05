@@ -858,6 +858,60 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     );
   }
 
+
+  String _formatColumnType(String value) {
+    final clean = value.trim();
+    if (clean.isEmpty) return '';
+    return clean.toUpperCase();
+  }
+
+  bool _isPrimaryKey(DbColumnInfo col) {
+    return (col.flag ?? '').trim().toUpperCase() == 'PK';
+  }
+
+  IconData _iconForColumnType(String value) {
+    final type = value.trim().toLowerCase();
+
+    if (type.contains('int') ||
+        type.contains('number') ||
+        type.contains('numeric') ||
+        type.contains('decimal') ||
+        type.contains('float') ||
+        type.contains('double') ||
+        type.contains('real') ||
+        type.contains('money')) {
+      return Icons.pin_rounded;
+    }
+
+    if (type.contains('char') ||
+        type.contains('text') ||
+        type.contains('clob') ||
+        type.contains('nchar') ||
+        type.contains('nvarchar') ||
+        type.contains('varchar')) {
+      return Icons.text_fields_rounded;
+    }
+
+    if (type.contains('date') ||
+        type.contains('time') ||
+        type.contains('timestamp')) {
+      return Icons.event_rounded;
+    }
+
+    if (type.contains('bool') || type == 'bit' || type.contains('boolean')) {
+      return Icons.toggle_on_rounded;
+    }
+
+    if (type.contains('binary') ||
+        type.contains('blob') ||
+        type.contains('byte') ||
+        type.contains('varbinary')) {
+      return Icons.memory_rounded;
+    }
+
+    return Icons.data_object_rounded;
+  }
+
   Widget _buildStructureTable(
     ThemeData theme,
     ColorScheme colors,
@@ -908,35 +962,60 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             )
           else
             ...item.columns.map(
-              (col) => ListTile(
-                dense: true,
-                title: Text(
-                  col.name,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+              (col) {
+                final typeLabel = _formatColumnType(col.type);
+                final isPk = _isPrimaryKey(col);
+
+                return ListTile(
+                  dense: true,
+                  leading: Icon(
+                    _iconForColumnType(col.type),
+                    size: 20,
+                    color: colors.onSurfaceVariant,
                   ),
-                ),
-                subtitle: Text(col.type),
-                trailing: col.flag == null
-                    ? null
-                    : Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colors.primary.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          col.flag!,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: colors.primary,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                  title: RichText(
+                    text: TextSpan(
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colors.onSurface,
+                        fontWeight: FontWeight.w700,
                       ),
-              ),
+                      children: [
+                        TextSpan(text: col.name),
+                        if (typeLabel.isNotEmpty) ...[
+                          const TextSpan(text: '  '),
+                          TextSpan(
+                            text: '($typeLabel)',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: colors.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  trailing: isPk
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent.shade400,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'PK',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: Colors.black,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                        )
+                      : null,
+                );
+              },
             ),
         ],
       ),
