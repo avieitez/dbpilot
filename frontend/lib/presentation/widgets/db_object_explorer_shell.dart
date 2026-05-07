@@ -7,7 +7,7 @@ import '../../services/connection_api_service.dart';
 import '../../core/strings/strings.dart';
 import '../screens/query_editor/query_editor_screen.dart';
 
-enum DbObjectCategory { tables, views, procedures, functions, packages, triggers, sequences, materializedViews, extensions }
+enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
 
 class DbExplorerObject {
   const DbExplorerObject({
@@ -206,21 +206,11 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       case 'views':
         return DbObjectCategory.views;
       case 'procedures':
-      case 'storedprocedures':
-      case 'stored_procedures':
         return DbObjectCategory.procedures;
       case 'functions':
         return DbObjectCategory.functions;
-      case 'packages':
-        return DbObjectCategory.packages;
       case 'triggers':
         return DbObjectCategory.triggers;
-      case 'sequences':
-        return DbObjectCategory.sequences;
-      case 'materializedviews':
-      case 'materialized_views':
-        return DbObjectCategory.materializedViews;
-      case 'extensions':
       default:
         return DbObjectCategory.extensions;
     }
@@ -233,19 +223,11 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       case 'view':
         return DbObjectCategory.views;
       case 'procedure':
-      case 'stored_procedure':
         return DbObjectCategory.procedures;
       case 'function':
         return DbObjectCategory.functions;
-      case 'package':
-        return DbObjectCategory.packages;
       case 'trigger':
         return DbObjectCategory.triggers;
-      case 'sequence':
-        return DbObjectCategory.sequences;
-      case 'materialized_view':
-        return DbObjectCategory.materializedViews;
-      case 'extension':
       default:
         return DbObjectCategory.extensions;
     }
@@ -261,49 +243,28 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         return Icons.settings_suggest_rounded;
       case DbObjectCategory.functions:
         return Icons.functions_rounded;
-      case DbObjectCategory.packages:
-        return Icons.inventory_2_outlined;
       case DbObjectCategory.triggers:
         return Icons.bolt_rounded;
-      case DbObjectCategory.sequences:
-        return Icons.format_list_numbered_rounded;
-      case DbObjectCategory.materializedViews:
-        return Icons.dataset_linked_outlined;
       case DbObjectCategory.extensions:
         return Icons.extension_rounded;
     }
   }
 
   String _defaultQuery(DbExplorerObject object) {
-    if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) {
-      return object.previewQuery!;
-    }
-
-    final objectType = (object.objectType ?? _objectTypeFromCategory(object.category)).toLowerCase();
+    final objectType = (object.objectType ?? '').toLowerCase();
     final schema = object.schemaName?.trim();
     final plainQualified = schema == null || schema.isEmpty ? object.name : '$schema.${object.name}';
     final sqlServerQualified = schema == null || schema.isEmpty ? '[${object.name}]' : '[$schema].[${object.name}]';
-    final provider = widget.connection.provider.apiValue;
 
-    if (objectType == 'procedure' || objectType == 'stored_procedure') {
-      if (provider == 'postgresql') return 'CALL $plainQualified();';
-      if (provider == 'oracle') return 'BEGIN\n  $plainQualified;\nEND;';
-      return 'EXEC $sqlServerQualified;';
+    if (objectType == 'procedure') {
+      if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) return object.previewQuery!;
+      return widget.connection.provider.apiValue == 'postgresql'
+          ? 'CALL $plainQualified();'
+          : 'EXEC $plainQualified;';
     }
+    if (objectType == 'function') return 'SELECT *\nFROM $plainQualified();';
 
-    if (objectType == 'function') {
-      return 'SELECT *\nFROM $plainQualified();';
-    }
-
-    if (objectType == 'sequence') {
-      return 'SELECT $plainQualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
-    }
-
-    if (objectType == 'package' || objectType == 'trigger' || objectType == 'extension') {
-      return '-- Open definition to inspect $plainQualified';
-    }
-
-    if (provider == 'sqlserver') {
+    if (widget.connection.provider.apiValue == 'sqlserver') {
       return 'SELECT *\nFROM $sqlServerQualified;';
     }
     return 'SELECT *\nFROM $plainQualified;';
@@ -372,23 +333,17 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   String _objectTypeFromCategory(DbObjectCategory category) {
     switch (category) {
       case DbObjectCategory.tables:
-        return 'table';
+        return AppStrings.table;
       case DbObjectCategory.views:
-        return 'view';
+        return AppStrings.view;
       case DbObjectCategory.procedures:
-        return 'procedure';
+        return AppStrings.procedure;
       case DbObjectCategory.functions:
-        return 'function';
-      case DbObjectCategory.packages:
-        return 'package';
+        return AppStrings.function;
       case DbObjectCategory.triggers:
-        return 'trigger';
-      case DbObjectCategory.sequences:
-        return 'sequence';
-      case DbObjectCategory.materializedViews:
-        return 'materialized_view';
+        return AppStrings.trigger;
       case DbObjectCategory.extensions:
-        return 'extension';
+        return AppStrings.extension;
     }
   }
 
@@ -788,24 +743,15 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         children: [
           _buildStructureTable(theme, colors, panelColor, item.name == _selectedObject?.name ? (_selectedObject ?? item) : item),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: () => _showPreview(item),
-                  icon: const Icon(Icons.table_chart_rounded),
-                  label: const Text(AppStrings.viewData),
-                ),
+          Center(
+            child: SizedBox(
+              width: 260,
+              child: FilledButton.icon(
+                onPressed: () => _openQueryEditor(item),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text(AppStrings.runQuery),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _openQueryEditor(item),
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: const Text(AppStrings.runQuery),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -970,26 +916,25 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
                 return ListTile(
                   dense: true,
-                  title: RichText(
-                    text: TextSpan(
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: colors.onSurface,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      children: [
-                        if (typeLabel.isNotEmpty) ...[
-                          TextSpan(
-                            text: '$typeLabel  ',
-                            style: theme.textTheme.titleSmall?.copyWith(
+                  title: Text(
+                    col.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: typeLabel.isNotEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            typeLabel,
+                            style: theme.textTheme.bodySmall?.copyWith(
                               color: colors.primary,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                        ],
-                        TextSpan(text: col.name),
-                      ],
-                    ),
-                  ),
+                        )
+                      : null,
                   trailing: isPk
                       ? Container(
                           padding: const EdgeInsets.symmetric(
