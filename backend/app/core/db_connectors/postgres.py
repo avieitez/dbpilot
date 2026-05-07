@@ -1,5 +1,4 @@
 import psycopg2
-from psycopg2 import errors as pg_errors
 from psycopg2 import sql as pg_sql
 
 
@@ -15,14 +14,6 @@ def _connect(payload):
     )
 
 
-
-def _normalize_timeout_seconds(timeout_seconds: int | None) -> int:
-    try:
-        value = int(timeout_seconds or 30)
-    except (TypeError, ValueError):
-        value = 30
-    return max(1, min(value, 600))
-
 def _serialize_value(value):
     if value is None:
         return None
@@ -37,8 +28,11 @@ def _schema(schema_name: str | None) -> str:
 
 def build_postgres_default_query(object_name: str, object_type: str, schema_name: str | None = None) -> str:
     qualified = f'"{_schema(schema_name)}"."{object_name}"'
-    if (object_type or "").lower() == "function":
+    clean_type = (object_type or "").lower()
+    if clean_type == "function":
         return f"SELECT *\nFROM {qualified}();"
+    if clean_type == "extension":
+        return f"-- Extension {object_name}. No preview query available."
     return f"SELECT *\nFROM {qualified};"
 
 
@@ -74,6 +68,7 @@ def get_postgres_objects(payload):
             ORDER BY table_schema, table_name
         """)
         tables = cur.fetchall()
+
         cur.execute("""
             SELECT table_schema, table_name
             FROM information_schema.views
@@ -81,6 +76,15 @@ def get_postgres_objects(payload):
             ORDER BY table_schema, table_name
         """)
         views = cur.fetchall()
+
+        cur.execute("""
+            SELECT schemaname, matviewname
+            FROM pg_matviews
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY schemaname, matviewname
+        """)
+        materialized_views = cur.fetchall()
+
         cur.execute("""
             SELECT routine_schema, routine_name
             FROM information_schema.routines
@@ -90,14 +94,31 @@ def get_postgres_objects(payload):
         """)
         functions = cur.fetchall()
 
+        cur.execute("""
+            SELECT COALESCE(n.nspname, ''), e.extname
+            FROM pg_extension e
+            LEFT JOIN pg_namespace n ON n.oid = e.extnamespace
+            ORDER BY e.extname
+        """)
+        extensions = cur.fetchall()
+
         def item(row, object_type):
             schema, name = row[0], row[1]
-            return {"name": name, "schemaName": schema, "subtitle": f"{schema} · {object_type}", "objectType": object_type, "defaultQuery": build_postgres_default_query(name, object_type, schema)}
+            subtitle = f"{schema} · {object_type}" if schema else object_type
+            return {
+                "name": name,
+                "schemaName": schema or None,
+                "subtitle": subtitle,
+                "objectType": object_type,
+                "defaultQuery": build_postgres_default_query(name, object_type, schema or None),
+            }
 
         return [
             {"key": "tables", "label": "Tables", "items": [item(row, "table") for row in tables]},
             {"key": "views", "label": "Views", "items": [item(row, "view") for row in views]},
             {"key": "functions", "label": "Functions", "items": [item(row, "function") for row in functions]},
+            {"key": "materializedViews", "label": "Materialized Views", "items": [item(row, "materialized_view") for row in materialized_views]},
+            {"key": "extensions", "label": "Extensions", "items": [item(row, "extension") for row in extensions]},
         ]
     finally:
         if cur is not None:
@@ -105,9 +126,8 @@ def get_postgres_objects(payload):
         if conn is not None:
             conn.close()
 
-
 def get_postgres_object_structure(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() == "function":
+    if (object_type or "").lower() not in {"table", "view", "materialized_view"}:
         return []
     conn = None
     cur = None
@@ -115,32 +135,51 @@ def get_postgres_object_structure(payload, object_name: str, object_type: str, s
         conn = _connect(payload)
         cur = conn.cursor()
         cur.execute("""
-            SELECT c.column_name,
+            SELECT a.attname AS column_name,
                    CASE
-                       WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length || ')'
-                       WHEN c.numeric_precision IS NOT NULL AND c.numeric_scale IS NOT NULL THEN c.data_type || '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
-                       ELSE c.data_type
+                       WHEN format_type(a.atttypid, a.atttypmod) IS NOT NULL THEN format_type(a.atttypid, a.atttypmod)
+                       ELSE t.typname
                    END AS data_type,
-                   c.is_nullable,
-                   CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 1 ELSE 0 END AS is_primary_key
-            FROM information_schema.columns c
-            LEFT JOIN information_schema.key_column_usage kcu
-              ON c.table_name = kcu.table_name AND c.column_name = kcu.column_name AND c.table_schema = kcu.table_schema
-            LEFT JOIN information_schema.table_constraints tc
-              ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema AND tc.constraint_type = 'PRIMARY KEY'
-            WHERE c.table_schema = %s AND c.table_name = %s
-            ORDER BY c.ordinal_position
+                   a.attnotnull,
+                   CASE WHEN pk.attname IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_type t ON t.oid = a.atttypid
+            LEFT JOIN (
+                SELECT kcu.table_schema, kcu.table_name, kcu.column_name AS attname
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'PRIMARY KEY'
+            ) pk
+              ON pk.table_schema = n.nspname
+             AND pk.table_name = c.relname
+             AND pk.attname = a.attname
+            WHERE n.nspname = %s
+              AND c.relname = %s
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            ORDER BY a.attnum
         """, (_schema(schema_name), object_name))
-        return [{"name": row[0], "dataType": row[1], "isNullable": str(row[2]).upper() == "YES", "flag": "PK" if row[3] else None} for row in cur.fetchall()]
+        return [
+            {
+                "name": row[0],
+                "dataType": row[1],
+                "isNullable": not bool(row[2]),
+                "flag": "PK" if row[3] else None,
+            }
+            for row in cur.fetchall()
+        ]
     finally:
         if cur is not None:
             cur.close()
         if conn is not None:
             conn.close()
 
-
 def get_postgres_object_preview(payload, object_name: str, object_type: str, limit: int, schema_name: str | None = None):
-    if (object_type or "").lower() == "function":
+    if (object_type or "").lower() not in {"table", "view", "materialized_view"}:
         return [], []
     conn = None
     cur = None
@@ -214,12 +253,10 @@ def get_postgres_object_parameters(payload, object_name: str, object_type: str, 
 def execute_postgres_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
     conn = None
     cur = None
-    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     try:
         conn = _connect(payload)
         cur = conn.cursor()
-        # PostgreSQL expects statement_timeout in milliseconds.
-        cur.execute("SET LOCAL statement_timeout = %s", (timeout_seconds * 1000,))
+        cur.execute("SET statement_timeout = %s", (int(timeout_seconds) * 1000,))
         cur.execute(sql)
         if cur.description is None:
             affected = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
@@ -232,10 +269,6 @@ def execute_postgres_query(payload, sql: str, limit: int, timeout_seconds: int =
                 break
             rows.append([_serialize_value(value) for value in row])
         return columns, rows
-    except pg_errors.QueryCanceled as exc:
-        if conn is not None:
-            conn.rollback()
-        raise TimeoutError(f"Query timed out after {timeout_seconds} seconds.") from exc
     except Exception:
         if conn is not None:
             conn.rollback()

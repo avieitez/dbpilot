@@ -7,7 +7,7 @@ import '../../services/connection_api_service.dart';
 import '../../core/strings/strings.dart';
 import '../screens/query_editor/query_editor_screen.dart';
 
-enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
+enum DbObjectCategory { tables, views, procedures, functions, packages, triggers, sequences, materializedViews, extensions }
 
 class DbExplorerObject {
   const DbExplorerObject({
@@ -206,11 +206,21 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       case 'views':
         return DbObjectCategory.views;
       case 'procedures':
+      case 'storedprocedures':
+      case 'stored_procedures':
         return DbObjectCategory.procedures;
       case 'functions':
         return DbObjectCategory.functions;
+      case 'packages':
+        return DbObjectCategory.packages;
       case 'triggers':
         return DbObjectCategory.triggers;
+      case 'sequences':
+        return DbObjectCategory.sequences;
+      case 'materializedviews':
+      case 'materialized_views':
+        return DbObjectCategory.materializedViews;
+      case 'extensions':
       default:
         return DbObjectCategory.extensions;
     }
@@ -223,11 +233,19 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       case 'view':
         return DbObjectCategory.views;
       case 'procedure':
+      case 'stored_procedure':
         return DbObjectCategory.procedures;
       case 'function':
         return DbObjectCategory.functions;
+      case 'package':
+        return DbObjectCategory.packages;
       case 'trigger':
         return DbObjectCategory.triggers;
+      case 'sequence':
+        return DbObjectCategory.sequences;
+      case 'materialized_view':
+        return DbObjectCategory.materializedViews;
+      case 'extension':
       default:
         return DbObjectCategory.extensions;
     }
@@ -243,28 +261,49 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         return Icons.settings_suggest_rounded;
       case DbObjectCategory.functions:
         return Icons.functions_rounded;
+      case DbObjectCategory.packages:
+        return Icons.inventory_2_outlined;
       case DbObjectCategory.triggers:
         return Icons.bolt_rounded;
+      case DbObjectCategory.sequences:
+        return Icons.format_list_numbered_rounded;
+      case DbObjectCategory.materializedViews:
+        return Icons.dataset_linked_outlined;
       case DbObjectCategory.extensions:
         return Icons.extension_rounded;
     }
   }
 
   String _defaultQuery(DbExplorerObject object) {
-    final objectType = (object.objectType ?? '').toLowerCase();
+    if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) {
+      return object.previewQuery!;
+    }
+
+    final objectType = (object.objectType ?? _objectTypeFromCategory(object.category)).toLowerCase();
     final schema = object.schemaName?.trim();
     final plainQualified = schema == null || schema.isEmpty ? object.name : '$schema.${object.name}';
     final sqlServerQualified = schema == null || schema.isEmpty ? '[${object.name}]' : '[$schema].[${object.name}]';
+    final provider = widget.connection.provider.apiValue;
 
-    if (objectType == 'procedure') {
-      if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) return object.previewQuery!;
-      return widget.connection.provider.apiValue == 'postgresql'
-          ? 'CALL $plainQualified();'
-          : 'EXEC $plainQualified;';
+    if (objectType == 'procedure' || objectType == 'stored_procedure') {
+      if (provider == 'postgresql') return 'CALL $plainQualified();';
+      if (provider == 'oracle') return 'BEGIN\n  $plainQualified;\nEND;';
+      return 'EXEC $sqlServerQualified;';
     }
-    if (objectType == 'function') return 'SELECT *\nFROM $plainQualified();';
 
-    if (widget.connection.provider.apiValue == 'sqlserver') {
+    if (objectType == 'function') {
+      return 'SELECT *\nFROM $plainQualified();';
+    }
+
+    if (objectType == 'sequence') {
+      return 'SELECT $plainQualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
+    }
+
+    if (objectType == 'package' || objectType == 'trigger' || objectType == 'extension') {
+      return '-- Open definition to inspect $plainQualified';
+    }
+
+    if (provider == 'sqlserver') {
       return 'SELECT *\nFROM $sqlServerQualified;';
     }
     return 'SELECT *\nFROM $plainQualified;';
@@ -333,17 +372,23 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   String _objectTypeFromCategory(DbObjectCategory category) {
     switch (category) {
       case DbObjectCategory.tables:
-        return AppStrings.table;
+        return 'table';
       case DbObjectCategory.views:
-        return AppStrings.view;
+        return 'view';
       case DbObjectCategory.procedures:
-        return AppStrings.procedure;
+        return 'procedure';
       case DbObjectCategory.functions:
-        return AppStrings.function;
+        return 'function';
+      case DbObjectCategory.packages:
+        return 'package';
       case DbObjectCategory.triggers:
-        return AppStrings.trigger;
+        return 'trigger';
+      case DbObjectCategory.sequences:
+        return 'sequence';
+      case DbObjectCategory.materializedViews:
+        return 'materialized_view';
       case DbObjectCategory.extensions:
-        return AppStrings.extension;
+        return 'extension';
     }
   }
 
@@ -869,49 +914,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     return (col.flag ?? '').trim().toUpperCase() == 'PK';
   }
 
-  IconData _iconForColumnType(String value) {
-    final type = value.trim().toLowerCase();
-
-    if (type.contains('int') ||
-        type.contains('number') ||
-        type.contains('numeric') ||
-        type.contains('decimal') ||
-        type.contains('float') ||
-        type.contains('double') ||
-        type.contains('real') ||
-        type.contains('money')) {
-      return Icons.pin_rounded;
-    }
-
-    if (type.contains('char') ||
-        type.contains('text') ||
-        type.contains('clob') ||
-        type.contains('nchar') ||
-        type.contains('nvarchar') ||
-        type.contains('varchar')) {
-      return Icons.text_fields_rounded;
-    }
-
-    if (type.contains('date') ||
-        type.contains('time') ||
-        type.contains('timestamp')) {
-      return Icons.event_rounded;
-    }
-
-    if (type.contains('bool') || type == 'bit' || type.contains('boolean')) {
-      return Icons.toggle_on_rounded;
-    }
-
-    if (type.contains('binary') ||
-        type.contains('blob') ||
-        type.contains('byte') ||
-        type.contains('varbinary')) {
-      return Icons.memory_rounded;
-    }
-
-    return Icons.data_object_rounded;
-  }
-
   Widget _buildStructureTable(
     ThemeData theme,
     ColorScheme colors,
@@ -968,11 +970,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
                 return ListTile(
                   dense: true,
-                  leading: Icon(
-                    _iconForColumnType(col.type),
-                    size: 20,
-                    color: colors.onSurfaceVariant,
-                  ),
                   title: RichText(
                     text: TextSpan(
                       style: theme.textTheme.titleSmall?.copyWith(
@@ -980,17 +977,16 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                         fontWeight: FontWeight.w700,
                       ),
                       children: [
-                        TextSpan(text: col.name),
                         if (typeLabel.isNotEmpty) ...[
-                          const TextSpan(text: '  '),
                           TextSpan(
-                            text: '($typeLabel)',
+                            text: '$typeLabel  ',
                             style: theme.textTheme.titleSmall?.copyWith(
                               color: colors.primary,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                         ],
+                        TextSpan(text: col.name),
                       ],
                     ),
                   ),

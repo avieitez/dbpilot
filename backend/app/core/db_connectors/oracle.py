@@ -36,8 +36,7 @@ def _connect(payload, timeout_seconds: int = 30):
         password=payload.password,
         dsn=_dsn(payload),
     )
-    # python-oracledb uses milliseconds for call_timeout.
-    conn.call_timeout = max(1, int(timeout_seconds)) * 1000
+    conn.call_timeout = max(1, int(timeout_seconds or 30)) * 1000
     return conn
 
 
@@ -70,8 +69,6 @@ def _format_data_type(data_type, data_length, precision, scale):
         if precision is not None:
             return f"NUMBER({precision})"
         return "NUMBER"
-    if clean_type.startswith("TIMESTAMP"):
-        return clean_type
     return clean_type
 
 
@@ -84,12 +81,7 @@ def test_oracle_connection(payload) -> dict:
         cursor.execute("SELECT 1 FROM dual")
         cursor.fetchone()
         target = _clean(getattr(payload, "serviceName", None)) or _clean(getattr(payload, "sid", None)) or _clean(getattr(payload, "database", None))
-        return {
-            "success": True,
-            "message": f"Oracle connection successful. Target: {target}",
-            "provider": "oracle",
-            "mode": "real",
-        }
+        return {"success": True, "message": f"Oracle connection successful. Target: {target}", "provider": "oracle", "mode": "real"}
     except Exception as e:
         return {"success": False, "message": str(e), "provider": "oracle", "mode": "real"}
     finally:
@@ -102,8 +94,16 @@ def test_oracle_connection(payload) -> dict:
 def build_oracle_default_query(object_name: str, object_type: str, schema_name: str | None = None) -> str:
     prefix = f'{_quote_identifier(_clean(schema_name).upper())}.' if schema_name else ""
     name = _quote_identifier(_clean(object_name).upper())
-    if (object_type or "").lower() == "procedure":
+    clean_type = (object_type or "").lower()
+
+    if clean_type in {"procedure", "function"}:
         return f"BEGIN\n  {prefix}{name};\nEND;"
+    if clean_type == "package":
+        return f"-- Package {prefix}{name}. Open definition to inspect package source."
+    if clean_type == "trigger":
+        return f"-- Trigger {prefix}{name}. Open definition to inspect trigger source."
+    if clean_type == "sequence":
+        return f"SELECT {prefix}{name}.NEXTVAL AS NEXT_VALUE\nFROM dual;"
     return f"SELECT *\nFROM {prefix}{name};"
 
 
@@ -115,30 +115,15 @@ def get_oracle_objects(payload):
         conn = _connect(payload)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT owner, table_name
-            FROM all_tables
-            WHERE owner = :owner
-            ORDER BY table_name
-        """, owner=owner)
-        tables = cursor.fetchall()
-
-        cursor.execute("""
-            SELECT owner, view_name
-            FROM all_views
-            WHERE owner = :owner
-            ORDER BY view_name
-        """, owner=owner)
-        views = cursor.fetchall()
-
-        cursor.execute("""
-            SELECT owner, object_name
-            FROM all_objects
-            WHERE owner = :owner
-              AND object_type = 'PROCEDURE'
-            ORDER BY object_name
-        """, owner=owner)
-        procedures = cursor.fetchall()
+        queries = {
+            "tables": ("Tables", "table", "SELECT owner, table_name FROM all_tables WHERE owner = :owner ORDER BY table_name"),
+            "views": ("Views", "view", "SELECT owner, view_name FROM all_views WHERE owner = :owner ORDER BY view_name"),
+            "procedures": ("Procedures", "procedure", "SELECT owner, object_name FROM all_objects WHERE owner = :owner AND object_type = 'PROCEDURE' ORDER BY object_name"),
+            "functions": ("Functions", "function", "SELECT owner, object_name FROM all_objects WHERE owner = :owner AND object_type = 'FUNCTION' ORDER BY object_name"),
+            "packages": ("Packages", "package", "SELECT owner, object_name FROM all_objects WHERE owner = :owner AND object_type = 'PACKAGE' ORDER BY object_name"),
+            "triggers": ("Triggers", "trigger", "SELECT owner, trigger_name FROM all_triggers WHERE owner = :owner ORDER BY trigger_name"),
+            "sequences": ("Sequences", "sequence", "SELECT sequence_owner, sequence_name FROM all_sequences WHERE sequence_owner = :owner ORDER BY sequence_name"),
+        }
 
         def item(row, object_type):
             schema, name = row[0], row[1]
@@ -151,11 +136,12 @@ def get_oracle_objects(payload):
                 "isDemo": False,
             }
 
-        return [
-            {"key": "tables", "label": "Tables", "items": [item(row, "table") for row in tables]},
-            {"key": "views", "label": "Views", "items": [item(row, "view") for row in views]},
-            {"key": "procedures", "label": "Procedures", "items": [item(row, "procedure") for row in procedures]},
-        ]
+        groups = []
+        for key, (label, object_type, query) in queries.items():
+            cursor.execute(query, owner=owner)
+            rows = cursor.fetchall()
+            groups.append({"key": key, "label": label, "items": [item(row, object_type) for row in rows]})
+        return groups
     finally:
         if cursor is not None:
             cursor.close()
@@ -164,9 +150,8 @@ def get_oracle_objects(payload):
 
 
 def get_oracle_object_structure(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() == "procedure":
+    if (object_type or "").lower() not in {"table", "view"}:
         return []
-
     conn = None
     cursor = None
     owner = _owner(payload, schema_name)
@@ -199,16 +184,9 @@ def get_oracle_object_structure(payload, object_name: str, object_type: str, sch
               AND c.table_name = :name
             ORDER BY c.column_id
         """, owner=owner, name=name)
-
-        rows = cursor.fetchall()
         return [
-            {
-                "name": row[0],
-                "dataType": _format_data_type(row[1], row[2], row[3], row[4]),
-                "isNullable": str(row[5]).upper() == "Y",
-                "flag": row[6],
-            }
-            for row in rows
+            {"name": row[0], "dataType": _format_data_type(row[1], row[2], row[3], row[4]), "isNullable": str(row[5]).upper() == "Y", "flag": row[6]}
+            for row in cursor.fetchall()
         ]
     finally:
         if cursor is not None:
@@ -218,9 +196,8 @@ def get_oracle_object_structure(payload, object_name: str, object_type: str, sch
 
 
 def get_oracle_object_preview(payload, object_name: str, object_type: str, limit: int, schema_name: str | None = None):
-    if (object_type or "").lower() == "procedure":
+    if (object_type or "").lower() not in {"table", "view"}:
         return [], []
-
     conn = None
     cursor = None
     clean_limit = max(1, min(int(limit), 5000))
@@ -249,25 +226,32 @@ def get_oracle_object_definition(payload, object_name: str, object_type: str, sc
         conn = _connect(payload)
         cursor = conn.cursor()
         if clean_type == "view":
-            cursor.execute("""
-                SELECT text
-                FROM all_views
-                WHERE owner = :owner AND view_name = :name
-            """, owner=owner, name=name)
+            cursor.execute("SELECT text FROM all_views WHERE owner = :owner AND view_name = :name", owner=owner, name=name)
             row = cursor.fetchone()
             return row[0] if row else None
-
-        if clean_type == "procedure":
+        if clean_type in {"procedure", "function", "package", "trigger"}:
+            source_type = clean_type.upper()
             cursor.execute("""
                 SELECT text
                 FROM all_source
                 WHERE owner = :owner
                   AND name = :name
-                  AND type = 'PROCEDURE'
+                  AND type = :source_type
                 ORDER BY line
-            """, owner=owner, name=name)
+            """, owner=owner, name=name, source_type=source_type)
             return "".join(row[0] for row in cursor.fetchall()) or None
-
+        if clean_type == "sequence":
+            cursor.execute("""
+                SELECT 'CREATE SEQUENCE ' || sequence_owner || '.' || sequence_name ||
+                       ' MINVALUE ' || min_value ||
+                       ' MAXVALUE ' || max_value ||
+                       ' INCREMENT BY ' || increment_by ||
+                       ' START WITH ' || last_number
+                FROM all_sequences
+                WHERE sequence_owner = :owner AND sequence_name = :name
+            """, owner=owner, name=name)
+            row = cursor.fetchone()
+            return row[0] if row else None
         return None
     finally:
         if cursor is not None:
@@ -277,9 +261,8 @@ def get_oracle_object_definition(payload, object_name: str, object_type: str, sc
 
 
 def get_oracle_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() != "procedure":
+    if (object_type or "").lower() not in {"procedure", "function"}:
         return []
-
     conn = None
     cursor = None
     owner = _owner(payload, schema_name)
@@ -296,12 +279,7 @@ def get_oracle_object_parameters(payload, object_name: str, object_type: str, sc
             ORDER BY position
         """, owner=owner, name=name)
         return [
-            {
-                "name": row[0],
-                "dataType": row[1],
-                "direction": row[2],
-                "hasDefault": str(row[3]).upper() == "Y",
-            }
+            {"name": row[0], "dataType": row[1], "direction": row[2], "hasDefault": str(row[3]).upper() == "Y"}
             for row in cursor.fetchall()
         ]
     finally:
@@ -319,12 +297,10 @@ def execute_oracle_query(payload, sql: str, limit: int, timeout_seconds: int = 3
         conn = _connect(payload, timeout_seconds)
         cursor = conn.cursor()
         cursor.execute(sql)
-
         if cursor.description is None:
             affected = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
             conn.commit()
             return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]]
-
         columns = [desc[0] for desc in cursor.description]
         rows = [[_serialize_value(value) for value in row] for row in cursor.fetchmany(clean_limit)]
         return columns, rows

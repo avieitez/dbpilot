@@ -1,16 +1,7 @@
 import pymssql
 
 
-
-def _normalize_timeout_seconds(timeout_seconds: int | None) -> int:
-    try:
-        value = int(timeout_seconds or 30)
-    except (TypeError, ValueError):
-        value = 30
-    return max(1, min(value, 600))
-
 def _connect(payload, timeout_seconds: int = 30):
-    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     database = payload.database or "master"
     return pymssql.connect(
         server=payload.host,
@@ -44,8 +35,13 @@ def _qualified_name(object_name: str, schema_name: str | None = None) -> str:
 
 def build_sqlserver_default_query(object_name: str, object_type: str, schema_name: str | None = None) -> str:
     qualified = _qualified_name(object_name, schema_name)
-    if (object_type or "").lower() == "procedure":
+    clean_type = (object_type or "").lower()
+    if clean_type in {"procedure", "stored_procedure"}:
         return f"EXEC {qualified};"
+    if clean_type == "function":
+        return f"SELECT *\nFROM {qualified}();"
+    if clean_type == "trigger":
+        return f"-- Trigger {qualified}. Open definition to inspect trigger source."
     return f"SELECT *\nFROM {qualified};"
 
 
@@ -81,6 +77,7 @@ def get_sqlserver_objects(payload):
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         tables = cursor.fetchall()
+
         cursor.execute("""
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.VIEWS
@@ -88,6 +85,7 @@ def get_sqlserver_objects(payload):
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         views = cursor.fetchall()
+
         cursor.execute("""
             SELECT ROUTINE_SCHEMA, ROUTINE_NAME
             FROM INFORMATION_SCHEMA.ROUTINES
@@ -97,14 +95,42 @@ def get_sqlserver_objects(payload):
         """)
         procedures = cursor.fetchall()
 
+        cursor.execute("""
+            SELECT s.name AS schema_name, o.name AS object_name
+            FROM sys.objects o
+            INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT')
+              AND s.name NOT IN ('sys', 'INFORMATION_SCHEMA')
+            ORDER BY s.name, o.name
+        """)
+        functions = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT s.name AS schema_name, tr.name AS trigger_name
+            FROM sys.triggers tr
+            INNER JOIN sys.objects parent ON tr.parent_id = parent.object_id
+            INNER JOIN sys.schemas s ON parent.schema_id = s.schema_id
+            WHERE tr.is_ms_shipped = 0
+            ORDER BY s.name, tr.name
+        """)
+        triggers = cursor.fetchall()
+
         def item(row, object_type):
             schema, name = row[0], row[1]
-            return {"name": name, "schemaName": schema, "subtitle": f"{schema} · {object_type}", "objectType": object_type, "defaultQuery": build_sqlserver_default_query(name, object_type, schema)}
+            return {
+                "name": name,
+                "schemaName": schema,
+                "subtitle": f"{schema} · {object_type}",
+                "objectType": object_type,
+                "defaultQuery": build_sqlserver_default_query(name, object_type, schema),
+            }
 
         return [
             {"key": "tables", "label": "Tables", "items": [item(row, "table") for row in tables]},
             {"key": "views", "label": "Views", "items": [item(row, "view") for row in views]},
-            {"key": "procedures", "label": "Procedures", "items": [item(row, "procedure") for row in procedures]},
+            {"key": "procedures", "label": "Stored Procedures", "items": [item(row, "stored_procedure") for row in procedures]},
+            {"key": "functions", "label": "Functions", "items": [item(row, "function") for row in functions]},
+            {"key": "triggers", "label": "Triggers", "items": [item(row, "trigger") for row in triggers]},
         ]
     finally:
         if cursor is not None:
@@ -112,9 +138,8 @@ def get_sqlserver_objects(payload):
         if conn is not None:
             conn.close()
 
-
 def get_sqlserver_object_structure(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() == "procedure":
+    if (object_type or "").lower() not in {"table", "view"}:
         return []
     conn = None
     cursor = None
@@ -147,7 +172,7 @@ def get_sqlserver_object_structure(payload, object_name: str, object_type: str, 
 
 
 def get_sqlserver_object_preview(payload, object_name: str, object_type: str, limit: int, schema_name: str | None = None):
-    if (object_type or "").lower() == "procedure":
+    if (object_type or "").lower() not in {"table", "view"}:
         return [], []
     conn = None
     cursor = None
@@ -183,7 +208,7 @@ def get_sqlserver_object_definition(payload, object_name: str, object_type: str,
 
 
 def get_sqlserver_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() != "procedure":
+    if (object_type or "").lower() not in {"procedure", "stored_procedure", "function"}:
         return []
     conn = None
     cursor = None
@@ -211,7 +236,6 @@ def get_sqlserver_object_parameters(payload, object_name: str, object_type: str,
 def execute_sqlserver_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
     conn = None
     cursor = None
-    timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
     try:
         conn = _connect(payload, timeout_seconds)
         cursor = conn.cursor()
@@ -227,12 +251,9 @@ def execute_sqlserver_query(payload, sql: str, limit: int, timeout_seconds: int 
                 break
             rows.append([_serialize_value(value) for value in row])
         return columns, rows
-    except Exception as exc:
+    except Exception:
         if conn is not None:
             conn.rollback()
-        message = str(exc).lower()
-        if "timeout" in message or "timed out" in message or "query cancelled" in message:
-            raise TimeoutError(f"Query timed out after {timeout_seconds} seconds.") from exc
         raise
     finally:
         if cursor is not None:
