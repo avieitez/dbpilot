@@ -35,7 +35,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _databaseController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _serviceNameController = TextEditingController(text: 'XE');
+  final _serviceNameController = TextEditingController();
   final _sidController = TextEditingController();
 
   final _nameFocus = FocusNode();
@@ -112,7 +112,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _sidController.clear();
     } else {
       _databaseController.clear();
-      _serviceNameController.text = 'XE';
+      _serviceNameController.clear();
       _sidController.clear();
     }
   }
@@ -128,7 +128,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _passwordController.clear();
     _serviceNameController.text = (data['serviceName']?.toString().isNotEmpty ?? false)
         ? data['serviceName'].toString()
-        : 'XE';
+        : '23ai_34ui2';
     _sidController.text = data['sid']?.toString() ?? '';
     _encrypt = data['encrypt'] == true;
     _trustServerCertificate = data['trustServerCertificate'] != false;
@@ -169,7 +169,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       username: _usernameController.text.trim(),
       password: _passwordController.text,
       database: _isOracle
-          ? databaseValue
+          ? (_serviceNameController.text.trim().isNotEmpty
+              ? _serviceNameController.text.trim()
+              : (_sidController.text.trim().isNotEmpty
+                  ? _sidController.text.trim()
+                  : databaseValue))
           : (databaseValue.isNotEmpty
               ? databaseValue
               : (_selectedProvider == DatabaseProvider.postgresql
@@ -627,7 +631,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 focusNode: _serviceNameFocus,
                                 fieldKey: 'serviceName',
                                 label: AppStrings.serviceName,
-                                hint: 'XE',
+                                hint: '23ai_34ui2',
                                 validator: (value) {
                                   final sidValue = _sidController.text.trim();
                                   if ((value == null || value.trim().isEmpty) &&

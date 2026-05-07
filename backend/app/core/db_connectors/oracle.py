@@ -1,52 +1,346 @@
+import oracledb
+
+
+def _clean(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _owner(payload, schema_name: str | None = None) -> str:
+    return _clean(schema_name or payload.username).upper()
+
+
+def _dsn(payload) -> str:
+    host = _clean(payload.host)
+    port = int(payload.port or 1521)
+    service_name = _clean(getattr(payload, "serviceName", None))
+    sid = _clean(getattr(payload, "sid", None))
+
+    if service_name:
+        protocol = "tcps" if port == 2484 else "tcp"
+        return f"{protocol}://{host}:{port}/{service_name}"
+
+    if sid:
+        return oracledb.makedsn(host, port, sid=sid)
+
+    database = _clean(getattr(payload, "database", None))
+    if database:
+        protocol = "tcps" if port == 2484 else "tcp"
+        return f"{protocol}://{host}:{port}/{database}"
+
+    raise ValueError("Oracle requires serviceName, SID, or database/service value")
+
+
+def _connect(payload, timeout_seconds: int = 30):
+    conn = oracledb.connect(
+        user=payload.username,
+        password=payload.password,
+        dsn=_dsn(payload),
+    )
+    # python-oracledb uses milliseconds for call_timeout.
+    conn.call_timeout = max(1, int(timeout_seconds)) * 1000
+    return conn
+
+
+def _serialize_value(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _quote_identifier(value: str) -> str:
+    clean = (value or "").replace('"', '""').strip()
+    return f'"{clean}"'
+
+
+def _qualified_name(object_name: str, schema_name: str | None = None, payload=None) -> str:
+    owner = _owner(payload, schema_name) if payload is not None else _clean(schema_name).upper()
+    name = _clean(object_name).upper()
+    return f"{_quote_identifier(owner)}.{_quote_identifier(name)}" if owner else _quote_identifier(name)
+
+
+def _format_data_type(data_type, data_length, precision, scale):
+    clean_type = (data_type or "").upper()
+    if clean_type in {"CHAR", "NCHAR", "VARCHAR2", "NVARCHAR2", "RAW"} and data_length:
+        return f"{clean_type}({data_length})"
+    if clean_type == "NUMBER":
+        if precision is not None and scale is not None:
+            return f"NUMBER({precision},{scale})"
+        if precision is not None:
+            return f"NUMBER({precision})"
+        return "NUMBER"
+    if clean_type.startswith("TIMESTAMP"):
+        return clean_type
+    return clean_type
+
+
 def test_oracle_connection(payload) -> dict:
-    target = payload.serviceName or payload.sid or "unknown"
-    return {
-        "success": True,
-        "message": f"Oracle connector selected for host={payload.host}, target={target}. DEMO MODE.",
-        "provider": "oracle",
-        "mode": "demo",
-    }
+    conn = None
+    cursor = None
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM dual")
+        cursor.fetchone()
+        target = _clean(getattr(payload, "serviceName", None)) or _clean(getattr(payload, "sid", None)) or _clean(getattr(payload, "database", None))
+        return {
+            "success": True,
+            "message": f"Oracle connection successful. Target: {target}",
+            "provider": "oracle",
+            "mode": "real",
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e), "provider": "oracle", "mode": "real"}
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def build_oracle_default_query(object_name: str, object_type: str, schema_name: str | None = None) -> str:
-    prefix = f"{schema_name}." if schema_name else ""
+    prefix = f'{_quote_identifier(_clean(schema_name).upper())}.' if schema_name else ""
+    name = _quote_identifier(_clean(object_name).upper())
     if (object_type or "").lower() == "procedure":
-        return f"BEGIN {prefix}{object_name}; END;"
-    return f"SELECT *\nFROM {prefix}{object_name};"
+        return f"BEGIN\n  {prefix}{name};\nEND;"
+    return f"SELECT *\nFROM {prefix}{name};"
 
 
 def get_oracle_objects(payload):
-    return [
-        {"key": "tables", "label": "Tables", "items": [{"name": "CUSTOMERS_DEMO", "schemaName": "DEMO", "subtitle": "DEMO · table · fake metadata", "objectType": "table", "defaultQuery": build_oracle_default_query("CUSTOMERS_DEMO", "table", "DEMO"), "isDemo": True}]},
-        {"key": "views", "label": "Views", "items": [{"name": "V_CUSTOMERS_DEMO", "schemaName": "DEMO", "subtitle": "DEMO · view · fake metadata", "objectType": "view", "defaultQuery": build_oracle_default_query("V_CUSTOMERS_DEMO", "view", "DEMO"), "isDemo": True}]},
-        {"key": "procedures", "label": "Procedures", "items": [{"name": "SP_CUSTOMERS_DEMO", "schemaName": "DEMO", "subtitle": "DEMO · procedure · fake metadata", "objectType": "procedure", "defaultQuery": build_oracle_default_query("SP_CUSTOMERS_DEMO", "procedure", "DEMO"), "isDemo": True}]},
-    ]
+    conn = None
+    cursor = None
+    owner = _owner(payload)
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT owner, table_name
+            FROM all_tables
+            WHERE owner = :owner
+            ORDER BY table_name
+        """, owner=owner)
+        tables = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT owner, view_name
+            FROM all_views
+            WHERE owner = :owner
+            ORDER BY view_name
+        """, owner=owner)
+        views = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT owner, object_name
+            FROM all_objects
+            WHERE owner = :owner
+              AND object_type = 'PROCEDURE'
+            ORDER BY object_name
+        """, owner=owner)
+        procedures = cursor.fetchall()
+
+        def item(row, object_type):
+            schema, name = row[0], row[1]
+            return {
+                "name": name,
+                "schemaName": schema,
+                "subtitle": f"{schema} · {object_type}",
+                "objectType": object_type,
+                "defaultQuery": build_oracle_default_query(name, object_type, schema),
+                "isDemo": False,
+            }
+
+        return [
+            {"key": "tables", "label": "Tables", "items": [item(row, "table") for row in tables]},
+            {"key": "views", "label": "Views", "items": [item(row, "view") for row in views]},
+            {"key": "procedures", "label": "Procedures", "items": [item(row, "procedure") for row in procedures]},
+        ]
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def get_oracle_object_structure(payload, object_name: str, object_type: str, schema_name: str | None = None):
     if (object_type or "").lower() == "procedure":
         return []
-    return [
-        {"name": "ID", "dataType": "NUMBER", "isNullable": False, "flag": "PK"},
-        {"name": "DESCRIPTION", "dataType": "VARCHAR2(200)", "isNullable": True, "flag": None},
-    ]
+
+    conn = None
+    cursor = None
+    owner = _owner(payload, schema_name)
+    name = _clean(object_name).upper()
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.column_name,
+                   c.data_type,
+                   c.data_length,
+                   c.data_precision,
+                   c.data_scale,
+                   c.nullable,
+                   CASE WHEN pk.column_name IS NOT NULL THEN 'PK' ELSE NULL END AS flag
+            FROM all_tab_columns c
+            LEFT JOIN (
+                SELECT acc.owner, acc.table_name, acc.column_name
+                FROM all_constraints ac
+                INNER JOIN all_cons_columns acc
+                    ON ac.owner = acc.owner
+                   AND ac.constraint_name = acc.constraint_name
+                   AND ac.table_name = acc.table_name
+                WHERE ac.constraint_type = 'P'
+            ) pk
+              ON pk.owner = c.owner
+             AND pk.table_name = c.table_name
+             AND pk.column_name = c.column_name
+            WHERE c.owner = :owner
+              AND c.table_name = :name
+            ORDER BY c.column_id
+        """, owner=owner, name=name)
+
+        rows = cursor.fetchall()
+        return [
+            {
+                "name": row[0],
+                "dataType": _format_data_type(row[1], row[2], row[3], row[4]),
+                "isNullable": str(row[5]).upper() == "Y",
+                "flag": row[6],
+            }
+            for row in rows
+        ]
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def get_oracle_object_preview(payload, object_name: str, object_type: str, limit: int, schema_name: str | None = None):
     if (object_type or "").lower() == "procedure":
         return [], []
-    return ["ID", "DESCRIPTION"], [[1, "Oracle demo row"]]
+
+    conn = None
+    cursor = None
+    clean_limit = max(1, min(int(limit), 5000))
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+        query = f"SELECT * FROM {_qualified_name(object_name, schema_name, payload)} FETCH FIRST {clean_limit} ROWS ONLY"
+        cursor.execute(query)
+        columns = [desc[0] for desc in cursor.description]
+        rows = [[_serialize_value(value) for value in row] for row in cursor.fetchall()]
+        return columns, rows
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def get_oracle_object_definition(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    return "-- Oracle connector is currently in DEMO MODE. Real metadata integration pending."
+    conn = None
+    cursor = None
+    owner = _owner(payload, schema_name)
+    name = _clean(object_name).upper()
+    clean_type = (object_type or "").lower()
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+        if clean_type == "view":
+            cursor.execute("""
+                SELECT text
+                FROM all_views
+                WHERE owner = :owner AND view_name = :name
+            """, owner=owner, name=name)
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+        if clean_type == "procedure":
+            cursor.execute("""
+                SELECT text
+                FROM all_source
+                WHERE owner = :owner
+                  AND name = :name
+                  AND type = 'PROCEDURE'
+                ORDER BY line
+            """, owner=owner, name=name)
+            return "".join(row[0] for row in cursor.fetchall()) or None
+
+        return None
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 def get_oracle_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
     if (object_type or "").lower() != "procedure":
         return []
-    return [{"name": "P_ID", "dataType": "NUMBER", "direction": "IN", "hasDefault": False}]
+
+    conn = None
+    cursor = None
+    owner = _owner(payload, schema_name)
+    name = _clean(object_name).upper()
+    try:
+        conn = _connect(payload)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT argument_name, data_type, in_out, defaulted
+            FROM all_arguments
+            WHERE owner = :owner
+              AND object_name = :name
+              AND argument_name IS NOT NULL
+            ORDER BY position
+        """, owner=owner, name=name)
+        return [
+            {
+                "name": row[0],
+                "dataType": row[1],
+                "direction": row[2],
+                "hasDefault": str(row[3]).upper() == "Y",
+            }
+            for row in cursor.fetchall()
+        ]
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
-def execute_oracle_query(payload, sql: str, limit: int):
-    return ["message"], [["Oracle connector is currently in DEMO MODE. Query was not executed."]]
+def execute_oracle_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
+    conn = None
+    cursor = None
+    clean_limit = max(1, min(int(limit), 5000))
+    try:
+        conn = _connect(payload, timeout_seconds)
+        cursor = conn.cursor()
+        cursor.execute(sql)
+
+        if cursor.description is None:
+            affected = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
+            conn.commit()
+            return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]]
+
+        columns = [desc[0] for desc in cursor.description]
+        rows = [[_serialize_value(value) for value in row] for row in cursor.fetchmany(clean_limit)]
+        return columns, rows
+    except oracledb.exceptions.OperationalError as exc:
+        if conn is not None:
+            conn.rollback()
+        message = str(exc)
+        if "DPY-4024" in message or "timeout" in message.lower():
+            raise TimeoutError(f"Oracle query exceeded timeout of {timeout_seconds} seconds") from exc
+        raise
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()

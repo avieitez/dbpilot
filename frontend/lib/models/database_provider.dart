@@ -37,7 +37,7 @@ extension DatabaseProviderX on DatabaseProvider {
       case DatabaseProvider.sqlServer:
         return '1433';
       case DatabaseProvider.oracle:
-        return '1521';
+        return '2484';
     }
   }
 

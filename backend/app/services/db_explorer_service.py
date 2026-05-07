@@ -36,7 +36,7 @@ class DbExplorerError(Exception):
 
 class DbExplorerService:
     def get_objects(self, payload: ConnectionTestRequest) -> DbObjectListResponse:
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         provider = payload.provider.lower().strip()
         if provider == "postgresql":
             groups = get_postgres_objects(payload)
@@ -49,7 +49,7 @@ class DbExplorerService:
         return DbObjectListResponse(provider=provider, groups=groups)
 
     def get_object_structure(self, payload, object_name, object_type, schema_name=None):
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         self._validate_object(object_name, object_type)
         provider = payload.provider.lower().strip()
         if provider == "postgresql":
@@ -63,7 +63,7 @@ class DbExplorerService:
         return DbObjectStructureResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, columns=columns)
 
     def get_object_preview(self, payload, object_name, object_type, limit, schema_name=None):
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         self._validate_object(object_name, object_type)
         self._validate_limit(limit)
         provider = payload.provider.lower().strip()
@@ -78,7 +78,7 @@ class DbExplorerService:
         return DbObjectPreviewResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, columns=columns, rows=rows, rowCount=len(rows))
 
     def get_object_definition(self, payload, object_name, object_type, schema_name=None):
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         self._validate_object(object_name, object_type)
         provider = payload.provider.lower().strip()
         if provider == "postgresql":
@@ -92,7 +92,7 @@ class DbExplorerService:
         return DbObjectDefinitionResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, definition=definition)
 
     def get_object_parameters(self, payload, object_name, object_type, schema_name=None):
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         self._validate_object(object_name, object_type)
         provider = payload.provider.lower().strip()
         if provider == "postgresql":
@@ -106,7 +106,7 @@ class DbExplorerService:
         return DbObjectParametersResponse(provider=provider, objectName=object_name, objectType=object_type, schemaName=schema_name, parameters=parameters)
 
     def execute_query(self, payload: ConnectionTestRequest, sql: str, limit: int, allow_data_modification: bool = False, timeout_seconds: int = 30):
-        self._validate_connection_payload(payload, allow_demo_oracle=True)
+        self._validate_connection_payload(payload)
         self._validate_limit(limit, max_limit=500)
         self._validate_timeout(timeout_seconds)
         clean_sql = (sql or "").strip()
@@ -122,13 +122,11 @@ class DbExplorerService:
         if provider in ("sqlserver", "sql_server", "sql server", "mssql"):
             return execute_sqlserver_query(payload, clean_sql, limit, timeout_seconds)
         if provider == "oracle":
-            return execute_oracle_query(payload, clean_sql, limit)
+            return execute_oracle_query(payload, clean_sql, limit, timeout_seconds)
         raise ValueError(f"Unsupported provider: {payload.provider}")
 
     def _validate_connection_payload(self, payload: ConnectionTestRequest, allow_demo_oracle: bool = False) -> None:
         provider = (payload.provider or "").lower().strip()
-        if allow_demo_oracle and provider == "oracle":
-            return
         if not payload.host or not payload.host.strip():
             raise DbExplorerError("Host is required")
         if not payload.port or not str(payload.port).strip():
@@ -137,6 +135,17 @@ class DbExplorerService:
             raise DbExplorerError("Username is required")
         if not payload.password or not payload.password.strip():
             raise DbExplorerError("Password is required")
+
+        if provider == "oracle":
+            has_target = bool(
+                (getattr(payload, "serviceName", None) or "").strip()
+                or (getattr(payload, "sid", None) or "").strip()
+                or (payload.database or "").strip()
+            )
+            if not has_target:
+                raise DbExplorerError("Oracle requires Service Name or SID")
+            return
+
         if not payload.database or not payload.database.strip():
             raise DbExplorerError("Database is required")
 

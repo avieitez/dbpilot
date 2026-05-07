@@ -3,6 +3,7 @@ import time
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
 from app.core.db_connectors.postgres import test_postgres_connection
 from app.core.db_connectors.sqlserver import test_sqlserver_connection
+from app.core.db_connectors.oracle import test_oracle_connection
 
 
 class ConnectionTestError(Exception):
@@ -31,6 +32,17 @@ class DbTesterService:
             message=result["message"],
             durationMs=duration_ms,
         )
+
+    def test_connection(self, payload):
+        provider = (payload.provider or "").lower().strip()
+        if provider == "postgresql":
+            return test_postgres_connection(payload)
+        if provider in ("sqlserver", "sql_server", "sql server", "mssql"):
+            return test_sqlserver_connection(payload)
+        if provider == "oracle":
+            return test_oracle_connection(payload)
+        raise ValueError(f"Unsupported provider: {payload.provider}"
+        )      
 
     def _validate_payload(self, payload: ConnectionTestRequest) -> None:
         if not payload.host or not payload.host.strip():
