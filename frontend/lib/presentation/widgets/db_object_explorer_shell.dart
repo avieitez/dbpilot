@@ -7,7 +7,17 @@ import '../../services/connection_api_service.dart';
 import '../../core/strings/strings.dart';
 import '../screens/query_editor/query_editor_screen.dart';
 
-enum DbObjectCategory { tables, views, procedures, functions, triggers, extensions }
+enum DbObjectCategory {
+  tables,
+  views,
+  procedures,
+  functions,
+  triggers,
+  extensions,
+  materializedViews,
+  packages,
+  sequences,
+}
 
 class DbExplorerObject {
   const DbExplorerObject({
@@ -211,6 +221,16 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         return DbObjectCategory.functions;
       case 'triggers':
         return DbObjectCategory.triggers;
+      case 'extensions':
+        return DbObjectCategory.extensions;
+      case 'materialized_views':
+      case 'materializedviews':
+      case 'materialized views':
+        return DbObjectCategory.materializedViews;
+      case 'packages':
+        return DbObjectCategory.packages;
+      case 'sequences':
+        return DbObjectCategory.sequences;
       default:
         return DbObjectCategory.extensions;
     }
@@ -247,6 +267,12 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         return Icons.bolt_rounded;
       case DbObjectCategory.extensions:
         return Icons.extension_rounded;
+      case DbObjectCategory.materializedViews:
+        return Icons.view_agenda_rounded;
+      case DbObjectCategory.packages:
+        return Icons.inventory_2_rounded;
+      case DbObjectCategory.sequences:
+        return Icons.format_list_numbered_rounded;        
     }
   }
 
@@ -344,6 +370,12 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         return AppStrings.trigger;
       case DbObjectCategory.extensions:
         return AppStrings.extension;
+      case DbObjectCategory.materializedViews:
+        return 'materialized_view';
+      case DbObjectCategory.packages:
+        return 'package';
+      case DbObjectCategory.sequences:
+        return 'sequence';
     }
   }
 
@@ -377,8 +409,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 children: [
                   Text(
                     '${object.name} · Preview',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -666,15 +699,11 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                               children: [
                                 Text(
                                   item.name,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  item.subtitle,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colors.onSurfaceVariant,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
@@ -726,17 +755,11 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ),
         title: Text(
           item.name,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            item.subtitle,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colors.onSurfaceVariant,
-            ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
           ),
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -782,15 +805,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         children: [
           Text(
             selected.name,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            selected.subtitle,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colors.onSurfaceVariant,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 16),
