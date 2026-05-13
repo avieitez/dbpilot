@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:dbpilot/models/database_provider.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
 import '../../../core/strings/strings.dart';
@@ -77,23 +80,14 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     if (provider == 'oracle') {
-      return 'SELECT *\nFROM $qualifiedName';
+      return 'SELECT *\nFROM $qualifiedName;';
     }
 
     return 'SELECT *\nFROM $qualifiedName;';
   }
 
-  String _normalizeSqlForExecution(String sql) {
-    final cleaned = sql.trim();
-    if (widget.connection.provider == DatabaseProvider.oracle) {
-      return cleaned.replaceFirst(RegExp(r';\s*\$'), '').trim();
-    }
-    return cleaned;
-  }
-
   Future<void> _execute() async {
-    final editorSql = _sqlController.text.trim();
-    final sql = _normalizeSqlForExecution(editorSql);
+    final sql = _sqlController.text.trim();
     if (sql.isEmpty) {
       _addMessage(QeStrings.noSqlToRun);
       return;
@@ -121,18 +115,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     final watch = Stopwatch()..start();
     try {
-      String sqlToExecute = sql.trim();
-
-      if (widget.connection.provider == DatabaseProvider.oracle) {
-        sqlToExecute = sqlToExecute.replaceFirst(
-          RegExp(r';+\s*$'),
-          '',
-        );
-      }
-
       final result = await _apiService.executeQuery(
         widget.connection,
-        sqlToExecute,
+        sql,
         limit: _limit,
         allowDataModification: !_safeMode,
         timeoutSeconds: _timeoutSeconds,
@@ -182,6 +167,57 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       if (_messages.length > 100) _messages.removeLast();
     });
   }
+
+  String _csvEscape(dynamic value) {
+    final text = value?.toString() ?? '';
+    final escaped = text.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  Future<void> _exportResultsToCsv() async {
+    final result = _result;
+
+    if (result == null || result.rows.isEmpty) {
+      _addMessage('No rows to export.');
+      return;
+    }
+
+    try {
+      final buffer = StringBuffer();
+
+      buffer.writeln(
+        result.columns.map(_csvEscape).join(','),
+      );
+
+      for (final row in result.rows) {
+        final values = <String>[];
+
+        for (var i = 0; i < result.columns.length; i++) {
+          final value = i < row.length ? row[i] : '';
+          values.add(_csvEscape(value));
+        }
+
+        buffer.writeln(values.join(','));
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '')
+          .replaceAll('.', '')
+          .replaceAll('-', '')
+          .replaceAll('T', '_');
+
+      final file = File('${directory.path}/results_$timestamp.csv');
+      await file.writeAsString(buffer.toString(), flush: true);
+
+      _addMessage('CSV exported: ${file.path}');
+    } catch (error) {
+      _addMessage('CSV export failed: $error');
+    }
+  }
+
+
 
   String _formatDateTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -446,8 +482,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           child: Row(
             children: [
               Expanded(child: Text('Results — ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${(_lastDuration!.inMilliseconds / 1000).toStringAsFixed(2)} sec'}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200))),
-              IconButton(onPressed: () => _addMessage(QeStrings.exportCsvPending), icon: const Icon(Icons.download_rounded)),
-              IconButton(onPressed: () => setState(() {}), icon: const Icon(Icons.refresh_rounded)),
+              IconButton(onPressed: (_result == null || _result!.rows.isEmpty)
+                      ? null
+                      : _exportResultsToCsv, icon: const Icon(Icons.download_rounded)),
+              IconButton(onPressed: _executing ? null : _execute, icon: const Icon(Icons.refresh_rounded)),
             ],
           ),
         ),
@@ -910,8 +948,7 @@ class _SqlTextEditingController extends TextEditingController {
         spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
-      final displayToken = _isSqlKeyword(token) ? token.toUpperCase() : token;
-      spans.add(TextSpan(text: displayToken, style: baseStyle.merge(_styleForToken(token))));
+      spans.add(TextSpan(text: token, style: baseStyle.merge(_styleForToken(token))));
       index = match.end;
     }
 
@@ -920,57 +957,6 @@ class _SqlTextEditingController extends TextEditingController {
     }
 
     return TextSpan(style: baseStyle, children: spans);
-  }
-
-  static const Set<String> _keywords = {
-    'SELECT',
-    'FROM',
-    'WHERE',
-    'JOIN',
-    'INNER',
-    'LEFT',
-    'RIGHT',
-    'FULL',
-    'OUTER',
-    'ON',
-    'AND',
-    'OR',
-    'ORDER',
-    'BY',
-    'GROUP',
-    'HAVING',
-    'INSERT',
-    'INTO',
-    'VALUES',
-    'UPDATE',
-    'SET',
-    'DELETE',
-    'CREATE',
-    'ALTER',
-    'DROP',
-    'TABLE',
-    'VIEW',
-    'PROCEDURE',
-    'FUNCTION',
-    'EXEC',
-    'EXECUTE',
-    'TOP',
-    'LIMIT',
-    'OFFSET',
-    'AS',
-    'DISTINCT',
-    'NULL',
-    'IS',
-    'NOT',
-    'BETWEEN',
-    'LIKE',
-    'IN',
-    'DESC',
-    'ASC',
-  };
-
-  bool _isSqlKeyword(String token) {
-    return _keywords.contains(token.toUpperCase());
   }
 
   TextStyle _styleForToken(String token) {
