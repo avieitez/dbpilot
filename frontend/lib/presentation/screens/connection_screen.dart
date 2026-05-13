@@ -196,6 +196,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
+  Future<bool> _connectionNameExists(String name) async {
+    final normalizedName = name.trim().toLowerCase();
+    final savedConnections = await _storageService.getSavedConnections();
+
+    return savedConnections.any((connection) {
+      final existingName =
+          connection['name']?.toString().trim().toLowerCase() ?? '';
+
+      final existingId = connection['id']?.toString();
+
+      final isSameConnection =
+          _editingConnectionId != null && existingId == _editingConnectionId;
+
+      return existingName == normalizedName && !isSameConnection;
+    });
+  }
 
   Future<void> _openProviderMain(ConnectionRequest request) async {
     Widget screen;
@@ -220,6 +236,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
+
+    final duplicated = await _connectionNameExists(request.name);
+    if (duplicated) {
+      if (!mounted) return;
+
+      setState(() {
+        _statusSuccess = false;
+        _statusMessage = 'A connection with this name already exists.';
+      });
+
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -268,30 +296,43 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
 
-  Future<void> _saveConnection() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _saveConnection() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    final request = _buildRequest();
-    final connectionId =
-        _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+  final request = _buildRequest();
 
-    await _storageService.saveConnection(
-      request,
-      existingId: connectionId,
-    );
-
+  final duplicated = await _connectionNameExists(request.name);
+  if (duplicated) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isEditing ? 'Connection updated.' : 'Connection saved.',
-        ),
-      ),
-    );
+    setState(() {
+      _statusSuccess = false;
+      _statusMessage = 'A connection with this name already exists.';
+    });
 
-    Navigator.of(context).pop(true);
+    return;
   }
+
+  final connectionId =
+      _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+
+  await _storageService.saveConnection(
+    request,
+    existingId: connectionId,
+  );
+
+  if (!mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        _isEditing ? 'Connection updated.' : 'Connection saved.',
+      ),
+    ),
+  );
+
+  Navigator.of(context).pop(true);
+}
 
   TextInputAction _actionForField(String fieldKey) {
     switch (fieldKey) {

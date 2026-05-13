@@ -77,14 +77,23 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     if (provider == 'oracle') {
-      return 'SELECT *\nFROM $qualifiedName;';
+      return 'SELECT *\nFROM $qualifiedName';
     }
 
     return 'SELECT *\nFROM $qualifiedName;';
   }
 
+  String _normalizeSqlForExecution(String sql) {
+    final cleaned = sql.trim();
+    if (widget.connection.provider == DatabaseProvider.oracle) {
+      return cleaned.replaceFirst(RegExp(r';\s*\$'), '').trim();
+    }
+    return cleaned;
+  }
+
   Future<void> _execute() async {
-    final sql = _sqlController.text.trim();
+    final editorSql = _sqlController.text.trim();
+    final sql = _normalizeSqlForExecution(editorSql);
     if (sql.isEmpty) {
       _addMessage(QeStrings.noSqlToRun);
       return;
@@ -112,9 +121,18 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     final watch = Stopwatch()..start();
     try {
+      String sqlToExecute = sql.trim();
+
+      if (widget.connection.provider == DatabaseProvider.oracle) {
+        sqlToExecute = sqlToExecute.replaceFirst(
+          RegExp(r';+\s*$'),
+          '',
+        );
+      }
+
       final result = await _apiService.executeQuery(
         widget.connection,
-        sql,
+        sqlToExecute,
         limit: _limit,
         allowDataModification: !_safeMode,
         timeoutSeconds: _timeoutSeconds,
@@ -892,7 +910,8 @@ class _SqlTextEditingController extends TextEditingController {
         spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
-      spans.add(TextSpan(text: token, style: baseStyle.merge(_styleForToken(token))));
+      final displayToken = _isSqlKeyword(token) ? token.toUpperCase() : token;
+      spans.add(TextSpan(text: displayToken, style: baseStyle.merge(_styleForToken(token))));
       index = match.end;
     }
 
@@ -901,6 +920,57 @@ class _SqlTextEditingController extends TextEditingController {
     }
 
     return TextSpan(style: baseStyle, children: spans);
+  }
+
+  static const Set<String> _keywords = {
+    'SELECT',
+    'FROM',
+    'WHERE',
+    'JOIN',
+    'INNER',
+    'LEFT',
+    'RIGHT',
+    'FULL',
+    'OUTER',
+    'ON',
+    'AND',
+    'OR',
+    'ORDER',
+    'BY',
+    'GROUP',
+    'HAVING',
+    'INSERT',
+    'INTO',
+    'VALUES',
+    'UPDATE',
+    'SET',
+    'DELETE',
+    'CREATE',
+    'ALTER',
+    'DROP',
+    'TABLE',
+    'VIEW',
+    'PROCEDURE',
+    'FUNCTION',
+    'EXEC',
+    'EXECUTE',
+    'TOP',
+    'LIMIT',
+    'OFFSET',
+    'AS',
+    'DISTINCT',
+    'NULL',
+    'IS',
+    'NOT',
+    'BETWEEN',
+    'LIKE',
+    'IN',
+    'DESC',
+    'ASC',
+  };
+
+  bool _isSqlKeyword(String token) {
+    return _keywords.contains(token.toUpperCase());
   }
 
   TextStyle _styleForToken(String token) {
