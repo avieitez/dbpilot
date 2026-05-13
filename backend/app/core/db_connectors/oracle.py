@@ -304,7 +304,7 @@ def execute_oracle_query(payload, sql: str, limit: int, timeout_seconds: int = 3
         columns = [desc[0] for desc in cursor.description]
         rows = [[_serialize_value(value) for value in row] for row in cursor.fetchmany(clean_limit)]
         return columns, rows
-    except oracledb.exceptions.OperationalError as exc:
+    except oracledb.Error as exc:
         if conn is not None:
             conn.rollback()
         message = str(exc)
