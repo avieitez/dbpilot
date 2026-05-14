@@ -4,8 +4,10 @@ import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/connection_api_service.dart';
 import '../../services/saved_connection_storage_service.dart';
-import '../screens/query_editor/query_editor_screen.dart';
 import '../widgets/saved_connection_card.dart';
+import 'oracle_main.dart';
+import 'postgresql_main.dart';
+import 'sqlserver_main.dart';
 
 class AllConnectionsScreen extends StatefulWidget {
   const AllConnectionsScreen({super.key});
@@ -19,7 +21,7 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
   final _apiService = ConnectionApiService();
 
   bool _loading = true;
-  bool _connecting = false;
+  String? _connectingConnectionId;
   List<Map<String, dynamic>> _connections = [];
 
   @override
@@ -50,27 +52,11 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
       final provider = DatabaseProviderX.fromString(
         connection['provider']?.toString() ?? '',
       );
+
       grouped[provider]!.add(connection);
     }
 
     return grouped;
-  }
-
-  String _connectionTarget(ConnectionRequest request) {
-    if (request.provider == DatabaseProvider.oracle) {
-      final serviceName = request.serviceName?.trim();
-      final sid = request.sid?.trim();
-
-      if (serviceName != null && serviceName.isNotEmpty) {
-        return serviceName;
-      }
-
-      if (sid != null && sid.isNotEmpty) {
-        return sid;
-      }
-    }
-
-    return request.database;
   }
 
   Future<ConnectionRequest> _buildRequest(Map<String, dynamic> connection) async {
@@ -98,35 +84,29 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
     );
   }
 
-  void _showConnectingDialog() {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-  }
-
-  void _closeConnectingDialog() {
-    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-      Navigator.of(context, rootNavigator: true).pop();
+  Widget _providerMain(ConnectionRequest request) {
+    switch (request.provider) {
+      case DatabaseProvider.sqlServer:
+        return SqlServerMain(connection: request);
+      case DatabaseProvider.postgresql:
+        return PostgreSqlMain(connection: request);
+      case DatabaseProvider.oracle:
+        return OracleMain(connection: request);
     }
   }
 
-  Future<void> _openQueryEditor(Map<String, dynamic> connection) async {
-    if (_connecting) return;
+  Future<void> _openProviderObjects(Map<String, dynamic> connection) async {
+    final connectionId = _storageService.ensureConnectionId(connection);
 
-    setState(() => _connecting = true);
-    _showConnectingDialog();
+    if (_connectingConnectionId != null) return;
+
+    setState(() => _connectingConnectionId = connectionId);
 
     try {
       final request = await _buildRequest(connection);
       final result = await _apiService.testConnection(request);
 
       if (!mounted) return;
-
-      _closeConnectingDialog();
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -135,25 +115,16 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
         return;
       }
 
-      await _storageService.setActiveConnectionId(
-        _storageService.ensureConnectionId(connection),
-      );
+      await _storageService.setActiveConnectionId(connectionId);
 
       if (!mounted) return;
 
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => QueryEditorScreen(
-            connection: request,
-            providerLabel: request.provider.label.toUpperCase(),
-            connectionSummary:
-                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
-          ),
+          builder: (_) => _providerMain(request),
         ),
       );
     } catch (error) {
-      _closeConnectingDialog();
-
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -163,7 +134,7 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _connecting = false);
+        setState(() => _connectingConnectionId = null);
       }
     }
   }
@@ -206,29 +177,36 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
                             ),
                           ),
                           ...grouped[provider]!.map(
-                            (connection) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(18),
-                                onTap: _connecting
-                                    ? null
-                                    : () => _openQueryEditor(connection),
-                                child: SavedConnectionCard(
-                                  provider: provider.label,
-                                  name: connection['name']?.toString() ?? '',
-                                  isConnected: false,
-                                  trailing: _connecting
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.open_in_new_rounded),
+                            (connection) {
+                              final connectionId =
+                                  _storageService.ensureConnectionId(connection);
+                              final isConnecting =
+                                  _connectingConnectionId == connectionId;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: _connectingConnectionId == null
+                                      ? () => _openProviderObjects(connection)
+                                      : null,
+                                  child: SavedConnectionCard(
+                                    provider: provider.label,
+                                    name: connection['name']?.toString() ?? '',
+                                    isConnected: false,
+                                    trailing: isConnecting
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.chevron_right_rounded),
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         ],
                       ],

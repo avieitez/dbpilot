@@ -20,7 +20,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
   final _apiService = ConnectionApiService();
 
   bool _loading = true;
-  bool _opening = false;
+  String? _openingQueryId;
   List<QueryHistoryItem> _queries = [];
   List<Map<String, dynamic>> _connections = [];
 
@@ -138,24 +138,8 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
     );
   }
 
-  void _showOpeningDialog() {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-  }
-
-  void _closeOpeningDialog() {
-    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-  }
-
   Future<void> _openQuery(QueryHistoryItem query) async {
-    if (_opening) return;
+    if (_openingQueryId != null) return;
 
     final connection = _findConnectionForQuery(query);
 
@@ -168,16 +152,13 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
       return;
     }
 
-    setState(() => _opening = true);
-    _showOpeningDialog();
+    setState(() => _openingQueryId = query.id);
 
     try {
       final request = await _buildRequest(connection);
       final result = await _apiService.testConnection(request);
 
       if (!mounted) return;
-
-      _closeOpeningDialog();
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -204,8 +185,6 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
         ),
       );
     } catch (error) {
-      _closeOpeningDialog();
-
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -215,7 +194,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _opening = false);
+        setState(() => _openingQueryId = null);
       }
     }
   }
@@ -259,6 +238,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                           ),
                           ...grouped[provider]!.map((query) {
                             final preview = query.sql.replaceAll('\n', ' ');
+                            final isOpening = _openingQueryId == query.id;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -283,16 +263,18 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                                   ],
                                 ),
                                 isThreeLine: true,
-                                trailing: _opening
+                                trailing: isOpening
                                     ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
+                                        width: 20,
+                                        height: 20,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
                                         ),
                                       )
                                     : const Icon(Icons.open_in_new_rounded),
-                                onTap: _opening ? null : () => _openQuery(query),
+                                onTap: _openingQueryId == null
+                                    ? () => _openQuery(query)
+                                    : null,
                               ),
                             );
                           }),
