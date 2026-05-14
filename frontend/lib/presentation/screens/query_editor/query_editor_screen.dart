@@ -4,6 +4,7 @@ import 'package:dbpilot/models/database_provider.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
@@ -114,10 +115,19 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     });
 
     final watch = Stopwatch()..start();
+
+    String sqlToExecute = sql.trim();
+
+    if (widget.connection.provider == DatabaseProvider.oracle) {
+      sqlToExecute = sqlToExecute.replaceFirst(
+        RegExp(r';+\s*$'),
+        '',
+      );
+    }
     try {
       final result = await _apiService.executeQuery(
         widget.connection,
-        sql,
+        sqlToExecute,
         limit: _limit,
         allowDataModification: !_safeMode,
         timeoutSeconds: _timeoutSeconds,
@@ -211,7 +221,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       final file = File('${directory.path}/results_$timestamp.csv');
       await file.writeAsString(buffer.toString(), flush: true);
 
-      _addMessage('CSV exported: ${file.path}');
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Query results CSV',
+      );
+
+      _addMessage('CSV exported successfully.');
     } catch (error) {
       _addMessage('CSV export failed: $error');
     }
@@ -948,7 +963,7 @@ class _SqlTextEditingController extends TextEditingController {
         spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
-      spans.add(TextSpan(text: token, style: baseStyle.merge(_styleForToken(token))));
+      spans.add(TextSpan(text: token.toUpperCase(), style: baseStyle.merge(_styleForToken(token))));
       index = match.end;
     }
 
