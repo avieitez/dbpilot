@@ -291,6 +291,20 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     ),
                   ],
                 ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  onPressed: () async {
+                    await _historyService.deleteQuery(item.id);
+
+                    if (!context.mounted) return;
+
+                    Navigator.pop(context);
+
+                    _addMessage('Query deleted.');
+
+                    await _showLoadQueryDialog();
+                  },
+                ),
                 isThreeLine: true,
                 onTap: () {
                   _sqlController.text = item.sql;

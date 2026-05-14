@@ -89,6 +89,22 @@ class QueryHistoryStorageService {
         .toList();
   }
 
+  Future<void> deleteQuery(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final items = prefs.getStringList(_storageKey) ?? [];
+
+    final filtered = items.where((item) {
+      try {
+        final map = jsonDecode(item) as Map<String, dynamic>;
+        return map['id']?.toString() != id;
+      } catch (_) {
+        return true;
+      }
+    }).toList();
+
+    await prefs.setStringList(_storageKey, filtered);
+  }
+  
   Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_storageKey);
