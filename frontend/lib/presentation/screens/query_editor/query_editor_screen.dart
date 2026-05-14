@@ -10,6 +10,8 @@ import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
 import '../../../core/strings/strings.dart';
 
+import '../../../services/query_history_storage_service.dart';
+
 class QueryEditorScreen extends StatefulWidget {
   const QueryEditorScreen({
     super.key,
@@ -35,6 +37,7 @@ class QueryEditorScreen extends StatefulWidget {
 }
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
+  final _historyService = QueryHistoryStorageService();
   late final _SqlTextEditingController _sqlController;
   late final FocusNode _editorFocusNode;
   late final ConnectionApiService _apiService;
@@ -133,6 +136,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         timeoutSeconds: _timeoutSeconds,
       ).timeout(Duration(seconds: _timeoutSeconds));
 
+      await _historyService.saveQuery(
+        provider: widget.connection.provider.apiValue,
+        connectionName: widget.connection.name,
+        sql: sqlToExecute,
+      );
+      
       watch.stop();
       if (!mounted) return;
       setState(() {
@@ -232,7 +241,76 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
   }
 
+  Future<void> _showLoadQueryDialog() async {
+  final queries = await _historyService.getQueries(
+    provider: widget.connection.provider.apiValue,
+  );
 
+  if (!mounted) return;
+
+  if (queries.isEmpty) {
+    _addMessage('No saved queries found.');
+    return;
+  }
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      return SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
+          child: ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: queries.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = queries[index];
+              final preview = item.sql.replaceAll('\n', ' ');
+
+              return ListTile(
+                leading: const Icon(Icons.history_rounded),
+                title: Text(
+                  item.connectionName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4),
+                    Text(
+                      item.executedAt.toString(),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+                isThreeLine: true,
+                onTap: () {
+                  _sqlController.text = item.sql;
+
+                  Navigator.pop(context);
+
+                  setState(() {
+                    _selectedTab = 0;
+                  });
+
+                  _addMessage('Query loaded.');
+                },
+              );
+            },
+          ),
+        ),
+      );
+    },
+  );
+}
 
   String _formatDateTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -386,7 +464,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           const SizedBox(width: 6),
           Expanded(child: _ToolbarButton(icon: Icons.save_outlined, label: QeStrings.saveQuery, onTap: () => _addMessage(QeStrings.localSavePending))),
           const SizedBox(width: 6),
-          Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: () => setState(() => _selectedTab = 3))),
+          Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: _showLoadQueryDialog,)),
         ],
       ),
     );
