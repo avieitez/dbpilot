@@ -7,6 +7,8 @@ import '../../services/connection_api_service.dart';
 import '../../services/saved_connection_storage_service.dart';
 import '../widgets/saved_connection_card.dart';
 import 'connection_screen.dart';
+import 'all_connections_screen.dart';
+import 'query_history_screen.dart';
 import 'oracle_main.dart';
 import 'postgresql_main.dart';
 import 'sqlserver_main.dart';
@@ -372,7 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'My Connections',
+                      'Last Connections',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -392,7 +394,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : ListView(
                         padding: EdgeInsets.zero,
                         children: [
-                        ..._connections.map((c) {
+                        ..._connections.take(5).map((c) {
                           final connectionId = _storageService.ensureConnectionId(c);
                           final isActive = connectionId == _activeConnectionId;
 
@@ -475,8 +477,29 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
+        onDestinationSelected: (index) async {
           setState(() => _selectedIndex = index);
+
+          if (index == 0) {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const AllConnectionsScreen(),
+              ),
+            );
+            if (mounted) {
+              await _loadSavedConnections();
+            }
+            return;
+          }
+
+          if (index == 1) {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const QueryHistoryScreen(),
+              ),
+            );
+            return;
+          }
         },
         height: 72,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
