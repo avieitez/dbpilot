@@ -65,16 +65,34 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
     return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
   }
 
+  String _connectionTarget(ConnectionRequest request) {
+    if (request.provider == DatabaseProvider.oracle) {
+      final serviceName = request.serviceName?.trim();
+      final sid = request.sid?.trim();
+
+      if (serviceName != null && serviceName.isNotEmpty) {
+        return serviceName;
+      }
+
+      if (sid != null && sid.isNotEmpty) {
+        return sid;
+      }
+    }
+
+    return request.database;
+  }
+
   Map<String, dynamic>? _findConnectionForQuery(QueryHistoryItem query) {
     final queryProvider = DatabaseProviderX.fromString(query.provider);
+    final queryConnectionName = query.connectionName.trim().toLowerCase();
 
     for (final connection in _connections) {
       final provider = DatabaseProviderX.fromString(
         connection['provider']?.toString() ?? '',
       );
 
-      final connectionName = connection['name']?.toString().trim().toLowerCase() ?? '';
-      final queryConnectionName = query.connectionName.trim().toLowerCase();
+      final connectionName =
+          connection['name']?.toString().trim().toLowerCase() ?? '';
 
       if (provider == queryProvider && connectionName == queryConnectionName) {
         return connection;
@@ -96,7 +114,8 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
 
   Future<ConnectionRequest> _buildRequest(Map<String, dynamic> connection) async {
     final connectionId = _connectionStorageService.ensureConnectionId(connection);
-    final fullConnection = await _connectionStorageService.getConnectionById(connectionId);
+    final fullConnection =
+        await _connectionStorageService.getConnectionById(connectionId);
 
     if (fullConnection == null) {
       throw Exception('Connection not found.');
@@ -119,6 +138,22 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
     );
   }
 
+  void _showOpeningDialog() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  void _closeOpeningDialog() {
+    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   Future<void> _openQuery(QueryHistoryItem query) async {
     if (_opening) return;
 
@@ -134,12 +169,15 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
     }
 
     setState(() => _opening = true);
+    _showOpeningDialog();
 
     try {
       final request = await _buildRequest(connection);
       final result = await _apiService.testConnection(request);
 
       if (!mounted) return;
+
+      _closeOpeningDialog();
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -159,12 +197,15 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
           builder: (_) => QueryEditorScreen(
             connection: request,
             providerLabel: request.provider.label.toUpperCase(),
-            connectionSummary: '${request.name}\n${request.host} / ${request.database}',
+            connectionSummary:
+                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
             initialSql: query.sql,
           ),
         ),
       );
     } catch (error) {
+      _closeOpeningDialog();
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -210,9 +251,10 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                             padding: const EdgeInsets.fromLTRB(4, 16, 4, 10),
                             child: Text(
                               provider.label,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w900),
                             ),
                           ),
                           ...grouped[provider]!.map((query) {
@@ -241,8 +283,16 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                                   ],
                                 ),
                                 isThreeLine: true,
-                                trailing: const Icon(Icons.open_in_new_rounded),
-                                onTap: () => _openQuery(query),
+                                trailing: _opening
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.open_in_new_rounded),
+                                onTap: _opening ? null : () => _openQuery(query),
                               ),
                             );
                           }),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/connection_api_service.dart';
@@ -51,11 +50,27 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
       final provider = DatabaseProviderX.fromString(
         connection['provider']?.toString() ?? '',
       );
-
       grouped[provider]!.add(connection);
     }
 
     return grouped;
+  }
+
+  String _connectionTarget(ConnectionRequest request) {
+    if (request.provider == DatabaseProvider.oracle) {
+      final serviceName = request.serviceName?.trim();
+      final sid = request.sid?.trim();
+
+      if (serviceName != null && serviceName.isNotEmpty) {
+        return serviceName;
+      }
+
+      if (sid != null && sid.isNotEmpty) {
+        return sid;
+      }
+    }
+
+    return request.database;
   }
 
   Future<ConnectionRequest> _buildRequest(Map<String, dynamic> connection) async {
@@ -83,16 +98,35 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
     );
   }
 
+  void _showConnectingDialog() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  void _closeConnectingDialog() {
+    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   Future<void> _openQueryEditor(Map<String, dynamic> connection) async {
     if (_connecting) return;
 
     setState(() => _connecting = true);
+    _showConnectingDialog();
 
     try {
       final request = await _buildRequest(connection);
       final result = await _apiService.testConnection(request);
 
       if (!mounted) return;
+
+      _closeConnectingDialog();
 
       if (!result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -112,11 +146,14 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
           builder: (_) => QueryEditorScreen(
             connection: request,
             providerLabel: request.provider.label.toUpperCase(),
-            connectionSummary: '${request.name}\n${request.host} / ${request.database}',
+            connectionSummary:
+                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
           ),
         ),
       );
     } catch (error) {
+      _closeConnectingDialog();
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -162,9 +199,10 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
                             padding: const EdgeInsets.fromLTRB(4, 16, 4, 10),
                             child: Text(
                               provider.label,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                  ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w900),
                             ),
                           ),
                           ...grouped[provider]!.map(
@@ -172,12 +210,22 @@ class _AllConnectionsScreenState extends State<AllConnectionsScreen> {
                               padding: const EdgeInsets.only(bottom: 12),
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(18),
-                                onTap: () => _openQueryEditor(connection),
+                                onTap: _connecting
+                                    ? null
+                                    : () => _openQueryEditor(connection),
                                 child: SavedConnectionCard(
                                   provider: provider.label,
                                   name: connection['name']?.toString() ?? '',
                                   isConnected: false,
-                                  trailing: const Icon(Icons.open_in_new_rounded),
+                                  trailing: _connecting
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.open_in_new_rounded),
                                 ),
                               ),
                             ),
