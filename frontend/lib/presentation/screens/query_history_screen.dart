@@ -20,7 +20,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
   final _apiService = ConnectionApiService();
 
   bool _loading = true;
-  String? _openingQueryId;
+  bool _opening = false;
   List<QueryHistoryItem> _queries = [];
   List<Map<String, dynamic>> _connections = [];
 
@@ -65,34 +65,16 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
     return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
   }
 
-  String _connectionTarget(ConnectionRequest request) {
-    if (request.provider == DatabaseProvider.oracle) {
-      final serviceName = request.serviceName?.trim();
-      final sid = request.sid?.trim();
-
-      if (serviceName != null && serviceName.isNotEmpty) {
-        return serviceName;
-      }
-
-      if (sid != null && sid.isNotEmpty) {
-        return sid;
-      }
-    }
-
-    return request.database;
-  }
-
   Map<String, dynamic>? _findConnectionForQuery(QueryHistoryItem query) {
     final queryProvider = DatabaseProviderX.fromString(query.provider);
-    final queryConnectionName = query.connectionName.trim().toLowerCase();
 
     for (final connection in _connections) {
       final provider = DatabaseProviderX.fromString(
         connection['provider']?.toString() ?? '',
       );
 
-      final connectionName =
-          connection['name']?.toString().trim().toLowerCase() ?? '';
+      final connectionName = connection['name']?.toString().trim().toLowerCase() ?? '';
+      final queryConnectionName = query.connectionName.trim().toLowerCase();
 
       if (provider == queryProvider && connectionName == queryConnectionName) {
         return connection;
@@ -114,8 +96,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
 
   Future<ConnectionRequest> _buildRequest(Map<String, dynamic> connection) async {
     final connectionId = _connectionStorageService.ensureConnectionId(connection);
-    final fullConnection =
-        await _connectionStorageService.getConnectionById(connectionId);
+    final fullConnection = await _connectionStorageService.getConnectionById(connectionId);
 
     if (fullConnection == null) {
       throw Exception('Connection not found.');
@@ -139,7 +120,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
   }
 
   Future<void> _openQuery(QueryHistoryItem query) async {
-    if (_openingQueryId != null) return;
+    if (_opening) return;
 
     final connection = _findConnectionForQuery(query);
 
@@ -152,7 +133,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
       return;
     }
 
-    setState(() => _openingQueryId = query.id);
+    setState(() => _opening = true);
 
     try {
       final request = await _buildRequest(connection);
@@ -178,8 +159,7 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
           builder: (_) => QueryEditorScreen(
             connection: request,
             providerLabel: request.provider.label.toUpperCase(),
-            connectionSummary:
-                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
+            connectionSummary: '${request.name}\n${request.host} / ${request.database}',
             initialSql: query.sql,
           ),
         ),
@@ -194,10 +174,82 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _openingQueryId = null);
+        setState(() => _opening = false);
       }
     }
   }
+
+
+  Future<void> _deleteQuery(QueryHistoryItem query) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete query'),
+        content: const Text('Do you want to delete this query?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await _historyService.deleteQuery(query.id);
+
+    await _loadData();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Query deleted.'),
+      ),
+    );
+  }
+
+  Future<void> _showQueryMenu(QueryHistoryItem query) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.link_rounded),
+                title: const Text('Connect'),
+                onTap: () => Navigator.pop(context, 'connect'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_rounded),
+                title: const Text('Delete'),
+                onTap: () => Navigator.pop(context, 'delete'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'connect') {
+      await _openQuery(query);
+      return;
+    }
+
+    if (action == 'delete') {
+      await _deleteQuery(query);
+    }
+  }
+
 
   @override
   void dispose() {
@@ -215,13 +267,15 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _queries.isEmpty
-                ? const Center(
-                    child: Text('No saved queries.'),
-                  )
-                : ListView(
+        child: Stack(
+          children: [
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _queries.isEmpty
+                    ? const Center(
+                        child: Text('No saved queries.'),
+                      )
+                    : ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     children: [
                       for (final provider in DatabaseProvider.values) ...[
@@ -230,15 +284,13 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                             padding: const EdgeInsets.fromLTRB(4, 16, 4, 10),
                             child: Text(
                               provider.label,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w900),
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
                             ),
                           ),
                           ...grouped[provider]!.map((query) {
                             final preview = query.sql.replaceAll('\n', ' ');
-                            final isOpening = _openingQueryId == query.id;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -263,18 +315,28 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                                   ],
                                 ),
                                 isThreeLine: true,
-                                trailing: isOpening
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.open_in_new_rounded),
-                                onTap: _openingQueryId == null
-                                    ? () => _openQuery(query)
-                                    : null,
+                                trailing: PopupMenuButton<String>(
+                                  enabled: !_opening,
+                                  onSelected: (value) async {
+                                    if (value == 'connect') {
+                                      await _openQuery(query);
+                                    } else if (value == 'delete') {
+                                      await _deleteQuery(query);
+                                    }
+                                  },
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(
+                                      value: 'connect',
+                                      child: Text('Connect'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Delete'),
+                                    ),
+                                  ],
+                                  icon: const Icon(Icons.more_vert_rounded),
+                                ),
+                                onTap: _opening ? null : () => _openQuery(query),
                               ),
                             );
                           }),
@@ -282,7 +344,19 @@ class _QueryHistoryScreenState extends State<QueryHistoryScreen> {
                       ],
                     ],
                   ),
-      ),
-    );
-  }
-}
+
+                  if (_opening)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black.withOpacity(0.15),
+                        child: const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }
+      }
