@@ -359,15 +359,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       fillColor: const Color(0xFF203454),
       suffixIcon: suffixIcon,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide(color: Colors.white.withOpacity(0.05)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(18),
         borderSide: const BorderSide(color: Color(0xFF3EA5FF), width: 1.4),
       ),
     );
@@ -460,322 +460,347 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     super.dispose();
   }
 
+
+  Widget _buildProviderCards() {
+    return Row(
+      children: DatabaseProvider.values.map((provider) {
+        final isSelectedProvider = provider == _selectedProvider;
+        final providerEnabled = !_isEditing || isSelectedProvider;
+
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              right: provider == DatabaseProvider.oracle ? 0 : 10,
+            ),
+            child: SizedBox(
+              height: 120,
+              child: ProviderSelectorCard(
+                provider: provider,
+                selected: isSelectedProvider,
+                enabled: providerEnabled,
+                onTap: providerEnabled ? () => _onProviderSelected(provider) : () {},
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  List<Widget> _buildFormFields(ThemeData theme) {
+    return [
+      _buildProviderCards(),
+      if (_isEditing) ...[
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Icon(
+              Icons.lock_rounded,
+              size: 16,
+              color: Colors.white.withOpacity(0.55),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Provider cannot be changed while editing a saved connection.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withOpacity(0.60),
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+      const SizedBox(height: 18),
+      _buildTextField(
+        controller: _nameController,
+        focusNode: _nameFocus,
+        fieldKey: 'name',
+        label: AppStrings.connectionName,
+        hint: 'Enter Name',
+        validator: (value) => value == null || value.trim().isEmpty
+            ? 'Enter a name for this connection'
+            : null,
+      ),
+      const SizedBox(height: 14),
+      _buildTextField(
+        controller: _hostController,
+        focusNode: _hostFocus,
+        fieldKey: 'host',
+        label: AppStrings.host,
+        hint: 'Hostname / IP',
+        validator: _requiredValidator,
+      ),
+      const SizedBox(height: 14),
+      _buildTextField(
+        controller: _usernameController,
+        focusNode: _usernameFocus,
+        fieldKey: 'username',
+        label: AppStrings.userName,
+        hint: 'Enter Username',
+        validator: _requiredValidator,
+      ),
+      const SizedBox(height: 14),
+      _buildTextField(
+        controller: _passwordController,
+        focusNode: _passwordFocus,
+        fieldKey: 'password',
+        label: AppStrings.password,
+        hint: '••••••••',
+        obscureText: _obscurePassword,
+        validator: _requiredValidator,
+        suffixIcon: IconButton(
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+          icon: Icon(
+            _obscurePassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          title: const Text(
+            AppStrings.advancedSettings,
+            style: TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+            ),
+          ),
+          initiallyExpanded: _showAdvanced,
+          onExpansionChanged: (value) => setState(() => _showAdvanced = value),
+          children: [
+            const SizedBox(height: 4),
+            _buildTextField(
+              controller: _portController,
+              focusNode: _portFocus,
+              fieldKey: 'port',
+              label: AppStrings.port,
+              hint: _selectedProvider.defaultPort,
+              keyboardType: TextInputType.number,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return 'Required';
+                if (int.tryParse(value.trim()) == null) return 'Numbers only';
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            if (!_isOracle)
+              _buildTextField(
+                controller: _databaseController,
+                focusNode: _databaseFocus,
+                fieldKey: 'database',
+                label: AppStrings.database,
+                hint: _selectedProvider == DatabaseProvider.postgresql
+                    ? 'postgres'
+                    : 'master',
+              ),
+            if (_isOracle) ...[
+              _buildTextField(
+                controller: _serviceNameController,
+                focusNode: _serviceNameFocus,
+                fieldKey: 'serviceName',
+                label: AppStrings.serviceName,
+                hint: '23ai_34ui2',
+                validator: (value) {
+                  final sidValue = _sidController.text.trim();
+                  if ((value == null || value.trim().isEmpty) && sidValue.isEmpty) {
+                    return 'Enter a service name or SID';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+              _buildTextField(
+                controller: _sidController,
+                focusNode: _sidFocus,
+                fieldKey: 'sid',
+                label: AppStrings.sid,
+                hint: 'xe',
+              ),
+            ],
+            if (_selectedProvider == DatabaseProvider.sqlServer) ...[
+              const SizedBox(height: 8),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Encrypt connection'),
+                value: _encrypt,
+                onChanged: (value) => setState(() => _encrypt = value),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Trust server certificate'),
+                value: _trustServerCertificate,
+                onChanged: (value) => setState(() => _trustServerCertificate = value),
+              ),
+            ],
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      if (_statusMessage != null)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: (_statusSuccess ?? false)
+                ? Colors.green.withOpacity(0.12)
+                : Colors.red.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: (_statusSuccess ?? false)
+                  ? Colors.green.withOpacity(0.35)
+                  : Colors.red.withOpacity(0.35),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                (_statusSuccess ?? false)
+                    ? Icons.check_circle_rounded
+                    : Icons.error_outline_rounded,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _statusMessage!,
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
+                ),
+              ),
+            ],
+          ),
+        ),
+      const SizedBox(height: 18),
+      Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 72,
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : _testConnection,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2D8CFF),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                icon: _loading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.link_rounded),
+                label: const Text(
+                  AppStrings.test,
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SizedBox(
+              height: 72,
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : _saveConnection,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1D4D3C),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                icon: Icon(
+                  _isEditing ? Icons.save_as_rounded : Icons.save_rounded,
+                ),
+                label: Text(
+                  _isEditing ? AppStrings.update : AppStrings.safe,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: const Color(0xFF08111F),
       appBar: AppBar(
-        title: Text(_isEditing ? AppStrings.editConnection : AppStrings.newConnection),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         centerTitle: true,
-      ),
-      body: SafeArea(
-        child: Column(
+        toolbarHeight: 92,
+        title: Column(
           children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: DatabaseProvider.values.map((provider) {
-                          final isSelectedProvider = provider == _selectedProvider;
-                          final providerEnabled = !_isEditing || isSelectedProvider;
-
-                          return Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(
-                                right: provider == DatabaseProvider.oracle ? 0 : 10,
-                              ),
-                              child: SizedBox(
-                                height: 76,
-                                child: ProviderSelectorCard(
-                                  provider: provider,
-                                  selected: isSelectedProvider,
-                                  enabled: providerEnabled,
-                                  onTap: providerEnabled
-                                      ? () => _onProviderSelected(provider)
-                                      : () {},
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      if (_isEditing) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.lock_rounded,
-                              size: 16,
-                              color: Colors.white.withOpacity(0.55),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Provider cannot be changed while editing a saved connection.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white.withOpacity(0.60),
-                                  height: 1.25,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      _buildTextField(
-                        controller: _nameController,
-                        focusNode: _nameFocus,
-                        fieldKey: 'name',
-                        label: AppStrings.connectionName,
-                        hint: 'Enter Name',
-                        validator: (value) => value == null || value.trim().isEmpty
-                            ? 'Enter a name for this connection'
-                            : null,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildTextField(
-                        controller: _hostController,
-                        focusNode: _hostFocus,
-                        fieldKey: 'host',
-                        label: AppStrings.host,
-                        hint: 'Hostname / IP',
-                        validator: _requiredValidator,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildTextField(
-                        controller: _usernameController,
-                        focusNode: _usernameFocus,
-                        fieldKey: 'username',
-                        label: AppStrings.userName,
-                        hint: 'Enter Username',
-                        validator: _requiredValidator,
-                      ),
-                      const SizedBox(height: 14),
-                      _buildTextField(
-                        controller: _passwordController,
-                        focusNode: _passwordFocus,
-                        fieldKey: 'password',
-                        label: AppStrings.password,
-                        hint: '••••••••',
-                        obscureText: _obscurePassword,
-                        validator: _requiredValidator,
-                        suffixIcon: IconButton(
-                          onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
-                          ),
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_rounded
-                                : Icons.visibility_off_rounded,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Theme(
-                        data: theme.copyWith(
-                          dividerColor: Colors.transparent,
-                        ),
-                        child: ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          childrenPadding: EdgeInsets.zero,
-                          title: const Text(
-                            AppStrings.advancedSettings,
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          initiallyExpanded: _showAdvanced,
-                          onExpansionChanged: (value) {
-                            setState(() => _showAdvanced = value);
-                          },
-                          children: [
-                            const SizedBox(height: 4),
-                            _buildTextField(
-                              controller: _portController,
-                              focusNode: _portFocus,
-                              fieldKey: 'port',
-                              label: AppStrings.port,
-                              hint: _selectedProvider.defaultPort,
-                              keyboardType: TextInputType.number,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Required';
-                                }
-                                if (int.tryParse(value.trim()) == null) {
-                                  return 'Numbers only';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            if (!_isOracle)
-                              _buildTextField(
-                                controller: _databaseController,
-                                focusNode: _databaseFocus,
-                                fieldKey: 'database',
-                                label: AppStrings.database,
-                                hint: _selectedProvider == DatabaseProvider.postgresql
-                                    ? 'postgres'
-                                    : 'master',
-                              ),
-                            if (_isOracle) ...[
-                              _buildTextField(
-                                controller: _serviceNameController,
-                                focusNode: _serviceNameFocus,
-                                fieldKey: 'serviceName',
-                                label: AppStrings.serviceName,
-                                hint: '23ai_34ui2',
-                                validator: (value) {
-                                  final sidValue = _sidController.text.trim();
-                                  if ((value == null || value.trim().isEmpty) &&
-                                      sidValue.isEmpty) {
-                                    return 'Enter a service name or SID';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 14),
-                              _buildTextField(
-                                controller: _sidController,
-                                focusNode: _sidFocus,
-                                fieldKey: 'sid',
-                                label: AppStrings.sid,
-                                hint: 'xe',
-                              ),
-                            ],
-                            if (_selectedProvider == DatabaseProvider.sqlServer) ...[
-                              const SizedBox(height: 8),
-                              SwitchListTile.adaptive(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('Encrypt connection'),
-                                value: _encrypt,
-                                onChanged: (value) => setState(() => _encrypt = value),
-                              ),
-                              SwitchListTile.adaptive(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('Trust server certificate'),
-                                value: _trustServerCertificate,
-                                onChanged: (value) =>
-                                    setState(() => _trustServerCertificate = value),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (_statusMessage != null)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: (_statusSuccess ?? false)
-                                ? Colors.green.withOpacity(0.12)
-                                : Colors.red.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: (_statusSuccess ?? false)
-                                  ? Colors.green.withOpacity(0.35)
-                                  : Colors.red.withOpacity(0.35),
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                (_statusSuccess ?? false)
-                                    ? Icons.check_circle_rounded
-                                    : Icons.error_outline_rounded,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _statusMessage!,
-                                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      const SizedBox(height: 18),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 52,
-                              child: ElevatedButton.icon(
-                                onPressed: _loading ? null : _testConnection,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2D8CFF),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                icon: _loading
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.link_rounded),
-                                label: const Text(
-                                  AppStrings.test,
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 52,
-                              child: ElevatedButton.icon(
-                                onPressed: _loading ? null : _saveConnection,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1D4D3C),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                icon: Icon(
-                                  _isEditing ? Icons.save_as_rounded : Icons.save_rounded,
-                                ),
-                                label: Text(
-                                  _isEditing ? AppStrings.update : AppStrings.safe,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+            Text(
+              _isEditing ? AppStrings.editConnection : AppStrings.newConnection,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 28,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _isEditing
+                  ? 'Modify your saved database connection.'
+                  : 'Configure your database connection parameters.',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF08111F),
+              Color(0xFF0B1730),
+              Color(0xFF08111F),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _buildFormFields(theme),
+                    ),
                   ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _buildAdSection(),
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: _buildAdSection(),
+              ),
+            ],
+          ),
         ),
       ),
     );

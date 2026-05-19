@@ -27,7 +27,7 @@ class ProviderSelectorCard extends StatelessWidget {
         onTap: enabled ? onTap : null,
         child: Container(
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF132238) : Colors.white,
+            color: const Color(0xFF132238),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: selected ? const Color(0xFF1EA7FF) : Colors.transparent,
@@ -54,22 +54,22 @@ class ProviderSelectorCard extends StatelessWidget {
                       child: Center(
                         child: Image.asset(
                           provider.asset,
-                          width: 30,
-                          height: 30,
+                          width: 52,
+                          height: 52,
                           fit: BoxFit.contain,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
                     Text(
                       provider.label,
                       textAlign: TextAlign.center,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: selected ? Colors.white : Colors.black87,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
                         height: 1.1,
                       ),
                     ),
