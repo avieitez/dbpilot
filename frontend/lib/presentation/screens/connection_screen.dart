@@ -30,7 +30,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _storageService = SavedConnectionStorageService();
 
   final _nameController = TextEditingController();
-  final _hostController = TextEditingController(text: 'localhost');
+  final _hostController = TextEditingController();
   final _portController = TextEditingController(text: '5432');
   final _databaseController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -141,7 +141,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
 
     _nameController.clear();
-    _hostController.text = 'localhost';
+    _hostController.clear();
     _usernameController.clear();
     _passwordController.clear();
     _encrypt = false;
