@@ -129,6 +129,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   bool _loading = true;
   bool _loadingStructure = false;
   String? _errorMessage;
+  final Set<String> _visibleStructureKeys = <String>{};
 
   List<DbExplorerObject> get _activeItems {
     if (_activeCategory == null) return [];
@@ -414,6 +415,35 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     }
 
     return parts.isEmpty ? item.subtitle : parts.join(' · ');
+  }
+
+
+
+  String _objectKey(DbExplorerObject item) {
+    final schema = item.schemaName?.trim() ?? '';
+    final type = item.objectType?.trim() ?? _objectTypeFromCategory(item.category);
+    return '$type|$schema|${item.name}';
+  }
+
+  bool _isStructureVisible(DbExplorerObject item) {
+    return _visibleStructureKeys.contains(_objectKey(item));
+  }
+
+  Future<void> _toggleStructure(DbExplorerObject item) async {
+    final key = _objectKey(item);
+
+    if (_visibleStructureKeys.contains(key)) {
+      setState(() => _visibleStructureKeys.remove(key));
+      return;
+    }
+
+    await _loadStructure(item);
+
+    if (!mounted) return;
+
+    setState(() {
+      _visibleStructureKeys.add(key);
+    });
   }
 
 
@@ -783,7 +813,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ),
         onExpansionChanged: (expanded) {
           if (expanded) {
-            _loadStructure(item);
+            setState(() => _selectedObject = item);
           }
         },
         leading: CircleAvatar(
@@ -810,8 +840,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          _buildStructureTable(theme, colors, panelColor, item.name == _selectedObject?.name ? (_selectedObject ?? item) : item),
-          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -832,7 +860,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               ),
               Expanded(
                 child: TextButton.icon(
-                  onPressed: () => _loadStructure(item),
+                  onPressed: () => _toggleStructure(item),
                   icon: const Icon(
                     Icons.account_tree_rounded,
                     color: Colors.greenAccent,
@@ -848,6 +876,15 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               ),
             ],
           ),
+          if (_isStructureVisible(item)) ...[
+            const SizedBox(height: 12),
+            _buildStructureTable(
+              theme,
+              colors,
+              panelColor,
+              item.name == _selectedObject?.name ? (_selectedObject ?? item) : item,
+            ),
+          ],
         ],
       ),
     );
@@ -918,35 +955,18 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 Row(
                   children: [
                     Expanded(
-                      child: TextButton.icon(
+                      child: FilledButton.icon(
                         onPressed: () => _openQueryEditor(selected),
-                        icon: const Icon(
-                          Icons.play_arrow_rounded,
-                          color: Colors.lightBlueAccent,
-                        ),
-                        label: const Text(
-                          AppStrings.runQuery,
-                          style: TextStyle(
-                            color: Colors.lightBlueAccent,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: const Text(AppStrings.runQuery),
                       ),
                     ),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: TextButton.icon(
+                      child: OutlinedButton.icon(
                         onPressed: () => _loadStructure(selected),
-                        icon: const Icon(
-                          Icons.account_tree_rounded,
-                          color: Colors.greenAccent,
-                        ),
-                        label: const Text(
-                          AppStrings.structure,
-                          style: TextStyle(
-                            color: Colors.greenAccent,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        icon: const Icon(Icons.account_tree_rounded),
+                        label: const Text(AppStrings.structure),
                       ),
                     ),
                   ],
@@ -1027,49 +1047,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               (col) {
                 final typeLabel = _formatColumnType(col.type);
                 final isPk = _isPrimaryKey(col);
-                final isFk = _isForeignKey(col);
-
-                Widget? badge;
-
-                if (isPk) {
-                  badge = Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.greenAccent.shade400,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'PK',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  );
-                } else if (isFk) {
-                  badge = Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.orangeAccent,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      'FK',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  );
-                }
 
                 return ListTile(
                   dense: true,
@@ -1092,7 +1069,26 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                           ),
                         )
                       : null,
-                  trailing: badge,
+                  trailing: isPk
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent.shade400,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'PK',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: Colors.black,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                        )
+                      : null,
                 );
               },
             ),
