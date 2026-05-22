@@ -379,6 +379,44 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     }
   }
 
+
+  int _columnCountForObject(DbExplorerObject item) {
+    if (item.columns.isNotEmpty) return item.columns.length;
+
+    final match = RegExp(r'(\d+)\s+columns?', caseSensitive: false)
+        .firstMatch(item.subtitle);
+
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '') ?? 0;
+    }
+
+    return 0;
+  }
+
+  String _objectSubtitle(DbExplorerObject item) {
+    final parts = <String>[];
+
+    final schema = item.schemaName?.trim();
+    if (schema != null && schema.isNotEmpty) {
+      parts.add(schema);
+    }
+
+    final columnCount = _columnCountForObject(item);
+    if (columnCount > 0) {
+      parts.add('$columnCount columns');
+    }
+
+    final pkMatch = RegExp(r'PK\s*[:·]\s*([A-Za-z0-9_]+)', caseSensitive: false)
+        .firstMatch(item.subtitle);
+
+    if (pkMatch != null) {
+      parts.add('PK: ${pkMatch.group(1)}');
+    }
+
+    return parts.isEmpty ? item.subtitle : parts.join(' · ');
+  }
+
+
   Future<void> _showPreview(DbExplorerObject object) async {
     if (!widget.loadFromBackend) {
       _showInfoSnackBar('Preview is not available yet for Oracle.');
@@ -762,19 +800,53 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             fontWeight: FontWeight.w600,
           ),
         ),
+        subtitle: Text(
+          _objectSubtitle(item),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
           _buildStructureTable(theme, colors, panelColor, item.name == _selectedObject?.name ? (_selectedObject ?? item) : item),
           const SizedBox(height: 12),
-          Center(
-            child: SizedBox(
-              width: 260,
-              child: FilledButton.icon(
-                onPressed: () => _openQueryEditor(item),
-                icon: const Icon(Icons.open_in_new_rounded),
-                label: const Text(AppStrings.runQuery),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => _openQueryEditor(item),
+                  icon: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.lightBlueAccent,
+                  ),
+                  label: const Text(
+                    AppStrings.runQuery,
+                    style: TextStyle(
+                      color: Colors.lightBlueAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => _loadStructure(item),
+                  icon: const Icon(
+                    Icons.account_tree_rounded,
+                    color: Colors.greenAccent,
+                  ),
+                  label: const Text(
+                    AppStrings.structure,
+                    style: TextStyle(
+                      color: Colors.greenAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -845,16 +917,37 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.cleaning_services_rounded),
-                      label: const Text(AppStrings.clear),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () => _openQueryEditor(selected),
+                        icon: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.lightBlueAccent,
+                        ),
+                        label: const Text(
+                          AppStrings.runQuery,
+                          style: TextStyle(
+                            color: Colors.lightBlueAccent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      onPressed: () => _showPreview(selected),
-                      icon: const Icon(Icons.table_chart_rounded),
-                      label: const Text(AppStrings.preview),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () => _loadStructure(selected),
+                        icon: const Icon(
+                          Icons.account_tree_rounded,
+                          color: Colors.greenAccent,
+                        ),
+                        label: const Text(
+                          AppStrings.structure,
+                          style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -875,6 +968,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   bool _isPrimaryKey(DbColumnInfo col) {
     return (col.flag ?? '').trim().toUpperCase() == 'PK';
+  }
+
+  bool _isForeignKey(DbColumnInfo col) {
+    return (col.flag ?? '').trim().toUpperCase() == 'FK';
   }
 
   Widget _buildStructureTable(
@@ -906,7 +1003,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                 ),
                 const Spacer(),
                 Text(
-                  '${item.columns.length} ${AppStrings.columns}',
+                  '${_columnCountForObject(item)} ${AppStrings.columns}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),
@@ -930,6 +1027,49 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               (col) {
                 final typeLabel = _formatColumnType(col.type);
                 final isPk = _isPrimaryKey(col);
+                final isFk = _isForeignKey(col);
+
+                Widget? badge;
+
+                if (isPk) {
+                  badge = Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.greenAccent.shade400,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'PK',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  );
+                } else if (isFk) {
+                  badge = Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orangeAccent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'FK',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  );
+                }
 
                 return ListTile(
                   dense: true,
@@ -952,26 +1092,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                           ),
                         )
                       : null,
-                  trailing: isPk
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.greenAccent.shade400,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'PK',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: Colors.black,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        )
-                      : null,
+                  trailing: badge,
                 );
               },
             ),
