@@ -983,6 +983,173 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
+class _EditorHeader extends StatelessWidget {
+  const _EditorHeader({
+    required this.providerLabel,
+    required this.objectName,
+    required this.schemaName,
+  });
+
+  final String providerLabel;
+  final String? objectName;
+  final String? schemaName;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final objectLabel = _objectLabel;
+
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1726),
+        border: Border(
+          bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.36)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.terminal_rounded, size: 17, color: colors.secondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              objectLabel == null
+                  ? '$providerLabel SQL console'
+                  : '$providerLabel · $objectLabel',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: const Color(0xFFD9E6F2),
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: colors.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: colors.primary.withOpacity(0.28)),
+            ),
+            child: Text(
+              'SQL',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.primary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? get _objectLabel {
+    final object = objectName?.trim();
+    if (object == null || object.isEmpty) return null;
+
+    final schema = schemaName?.trim();
+    if (schema == null || schema.isEmpty) return object;
+
+    return '$schema.$object';
+  }
+}
+
+class _EditorStatusBar extends StatelessWidget {
+  const _EditorStatusBar({
+    required this.position,
+    required this.lineCount,
+    required this.characterCount,
+    required this.safeMode,
+  });
+
+  final String position;
+  final int lineCount;
+  final int characterCount;
+  final bool safeMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1726),
+        border: Border(
+          top: BorderSide(color: colors.outlineVariant.withOpacity(0.36)),
+        ),
+      ),
+      child: Row(
+        children: [
+          _StatusItem(icon: Icons.my_location_rounded, label: position),
+          const SizedBox(width: 12),
+          _StatusItem(icon: Icons.notes_rounded, label: '$lineCount lines'),
+          const SizedBox(width: 12),
+          _StatusItem(
+            icon: Icons.data_object_rounded,
+            label: '$characterCount chars',
+          ),
+          const Spacer(),
+          Icon(
+            safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded,
+            size: 15,
+            color: safeMode ? colors.secondary : colors.error,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            safeMode ? 'Safe' : 'Unsafe',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: safeMode ? colors.secondary : colors.error,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusItem extends StatelessWidget {
+  const _StatusItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: colors.onSurfaceVariant.withOpacity(0.85),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colors.onSurfaceVariant.withOpacity(0.95),
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
 class _DropDownBox<T> extends StatelessWidget {
   const _DropDownBox({required this.label, required this.value, required this.values, required this.onChanged, this.suffix = ''});
   final String label;
@@ -1021,8 +1188,15 @@ class _DropDownBox<T> extends StatelessWidget {
 }
 
 class _LineNumbers extends StatefulWidget {
-  const _LineNumbers({required this.controller});
+  const _LineNumbers({
+    required this.controller,
+    required this.scrollController,
+    required this.lineHeight,
+  });
+
   final TextEditingController controller;
+  final ScrollController scrollController;
+  final double lineHeight;
 
   @override
   State<_LineNumbers> createState() => _LineNumbersState();
@@ -1033,6 +1207,7 @@ class _LineNumbersState extends State<_LineNumbers> {
   void initState() {
     super.initState();
     widget.controller.addListener(_refresh);
+    widget.scrollController.addListener(_refresh);
   }
 
   void _refresh() {
@@ -1042,28 +1217,57 @@ class _LineNumbersState extends State<_LineNumbers> {
   @override
   void dispose() {
     widget.controller.removeListener(_refresh);
+    widget.scrollController.removeListener(_refresh);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final count = ('\n'.allMatches(widget.controller.text).length + 1).clamp(1, 999).toInt();
-    final style = Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.45, color: Theme.of(context).colorScheme.onSurfaceVariant);
+    final count = ('\n'.allMatches(widget.controller.text).length + 1)
+        .clamp(1, 999)
+        .toInt();
+    final colors = Theme.of(context).colorScheme;
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontFamily: 'monospace',
+          height: 1.5,
+          color: colors.onSurfaceVariant.withOpacity(0.78),
+          letterSpacing: 0,
+        );
 
     return Container(
-      width: 42,
-      decoration: BoxDecoration(border: Border(right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.4)))),
-      child: ClipRect(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(top: 14, right: 8),
-          physics: const NeverScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: List.generate(count, (index) => SizedBox(height: 20, child: Text('${index + 1}', style: style))),
+      width: 48,
+      color: const Color(0xFF091322),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            right: BorderSide(color: colors.outlineVariant.withOpacity(0.36)),
+          ),
+        ),
+        child: ClipRect(
+          child: Transform.translate(
+            offset: Offset(0, -_scrollOffset),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 16, right: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: List.generate(
+                  count,
+                  (index) => SizedBox(
+                    height: widget.lineHeight,
+                    child: Text('${index + 1}', style: style),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
+  }
+
+  double get _scrollOffset {
+    if (!widget.scrollController.hasClients) return 0;
+    return widget.scrollController.offset;
   }
 }
 
