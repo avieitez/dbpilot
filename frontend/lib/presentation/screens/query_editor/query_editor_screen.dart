@@ -37,9 +37,12 @@ class QueryEditorScreen extends StatefulWidget {
 }
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
+  static const double _editorLineHeight = 21;
+
   final _historyService = QueryHistoryStorageService();
   late final _SqlTextEditingController _sqlController;
   late final FocusNode _editorFocusNode;
+  late final ScrollController _editorScrollController;
   late final ConnectionApiService _apiService;
 
   int _selectedTab = 0;
@@ -58,7 +61,14 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     super.initState();
     _apiService = ConnectionApiService();
     _editorFocusNode = FocusNode();
+    _editorFocusNode.addListener(_refreshEditorChrome);
+    _editorScrollController = ScrollController();
     _sqlController = _SqlTextEditingController(text: _initialSql());
+    _sqlController.addListener(_refreshEditorChrome);
+  }
+
+  void _refreshEditorChrome() {
+    if (mounted) setState(() {});
   }
 
   String _initialSql() {
@@ -375,6 +385,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   @override
   void dispose() {
+    _sqlController.removeListener(_refreshEditorChrome);
+    _editorFocusNode.removeListener(_refreshEditorChrome);
+    _editorScrollController.dispose();
     _editorFocusNode.dispose();
     _sqlController.dispose();
     _apiService.dispose();
@@ -428,39 +441,84 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       children: [
         _buildToolbar(theme, colors),
         Expanded(
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            decoration: BoxDecoration(
-              color: colors.surfaceContainerHighest.withOpacity(0.35),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: colors.outlineVariant.withOpacity(0.5)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LineNumbers(controller: _sqlController),
-                Expanded(
-                  child: TextField(
-                    focusNode: _editorFocusNode,
-                    controller: _sqlController,
-                    expands: true,
-                    maxLines: null,
-                    minLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    keyboardType: TextInputType.multiline,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    scrollPadding: const EdgeInsets.only(bottom: 180),
-                    onTapOutside: (_) {},
-                    style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace', height: 1.45, letterSpacing: 0.2),
-                    decoration: const InputDecoration(
-                      hintText: QeStrings.sqlHint,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.fromLTRB(12, 14, 12, 14),
-                    ),
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xFF07101B),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _editorFocusNode.hasFocus
+                      ? colors.primary.withOpacity(0.75)
+                      : colors.outlineVariant.withOpacity(0.55),
                 ),
-              ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.24),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Column(
+                  children: [
+                    _EditorHeader(
+                      providerLabel: widget.providerLabel,
+                      objectName: widget.objectName,
+                      schemaName: widget.schemaName,
+                    ),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _LineNumbers(
+                            controller: _sqlController,
+                            scrollController: _editorScrollController,
+                            lineHeight: _editorLineHeight,
+                          ),
+                          Expanded(
+                            child: TextField(
+                              focusNode: _editorFocusNode,
+                              controller: _sqlController,
+                              scrollController: _editorScrollController,
+                              expands: true,
+                              maxLines: null,
+                              minLines: null,
+                              textAlignVertical: TextAlignVertical.top,
+                              keyboardType: TextInputType.multiline,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              scrollPadding: const EdgeInsets.only(bottom: 180),
+                              onTapOutside: (_) {},
+                              cursorColor: colors.secondary,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFFD6E2F0),
+                                fontFamily: 'monospace',
+                                height: 1.5,
+                                letterSpacing: 0,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: QeStrings.sqlHint,
+                                hintStyle: TextStyle(color: colors.onSurfaceVariant.withOpacity(0.55)),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.fromLTRB(14, 16, 18, 18),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _EditorStatusBar(
+                      position: _cursorPositionLabel(),
+                      lineCount: _lineCount,
+                      characterCount: _sqlController.text.length,
+                      safeMode: _safeMode,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -487,7 +545,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   Widget _buildQuickKeys(ColorScheme colors) {
     const keys = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'GROUP BY', 'ORDER BY'];
     return SizedBox(
-      height: 44,
+      height: 46,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         scrollDirection: Axis.horizontal,
@@ -496,6 +554,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         itemBuilder: (context, index) {
           final value = keys[index];
           return ActionChip(
+            visualDensity: VisualDensity.compact,
+            side: BorderSide(color: colors.outlineVariant.withOpacity(0.55)),
+            backgroundColor: colors.surfaceContainerHighest.withOpacity(0.35),
+            labelStyle: TextStyle(
+              color: colors.onSurface.withOpacity(0.88),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
             label: Text(value),
             onPressed: () {
               final text = _sqlController.text;
@@ -512,6 +579,20 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         },
       ),
     );
+  }
+
+  int get _lineCount => ('\n'.allMatches(_sqlController.text).length + 1).clamp(1, 9999).toInt();
+
+  String _cursorPositionLabel() {
+    final text = _sqlController.text;
+    final selectionStart = _sqlController.selection.start;
+    final offset = selectionStart < 0 ? text.length : selectionStart.clamp(0, text.length).toInt();
+    final beforeCursor = text.substring(0, offset);
+    final line = '\n'.allMatches(beforeCursor).length + 1;
+    final lastBreak = beforeCursor.lastIndexOf('\n');
+    final column = offset - lastBreak;
+
+    return 'Ln $line, Col $column';
   }
 
   Widget _buildBottomBar(ThemeData theme, ColorScheme colors) {
