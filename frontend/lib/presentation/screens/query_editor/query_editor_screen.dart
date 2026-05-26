@@ -72,7 +72,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     _editorFocusNode = FocusNode();
     _editorFocusNode.addListener(_refreshEditorChrome);
     _editorScrollController = ScrollController();
-    _sqlController = _SqlTextEditingController(text: _initialSql());
+    _sqlController = _SqlTextEditingController(
+      provider: widget.connection.provider,
+      text: _initialSql(),
+    );
     _sqlController.addListener(_refreshEditorChrome);
   }
 
@@ -1976,12 +1979,77 @@ class _ErrorPanel extends StatelessWidget {
 }
 
 class _SqlTextEditingController extends TextEditingController {
-  _SqlTextEditingController({super.text});
+  _SqlTextEditingController({
+    required this.provider,
+    super.text,
+  })  : _functionNames = _SqlFunctionCatalog.functionsFor(provider),
+        _dataTypeNames = _SqlDataTypeCatalog.dataTypesFor(provider) {
+    final keywords = _keywords.map(RegExp.escape).join('|');
+    final functions = _functionNames.map(RegExp.escape).join('|');
+    final dataTypes = _dataTypeNames.map(RegExp.escape).join('|');
+    final wordTokens = [
+      functions,
+      dataTypes,
+      keywords,
+    ].where((value) => value.isNotEmpty).join('|');
 
-  static final RegExp _tokenPattern = RegExp(
-    r"(--[^\n]*|'(?:''|[^'])*'|\b(?:SELECT|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AND|OR|ORDER|BY|GROUP|HAVING|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|PROCEDURE|FUNCTION|EXEC|EXECUTE|TOP|LIMIT|OFFSET|AS|DISTINCT|NULL|IS|NOT|BETWEEN|LIKE|IN|DESC|ASC)\b|\b\d+(?:\.\d+)?\b)",
-    caseSensitive: false,
-  );
+    _tokenPattern = RegExp(
+      "(--[^\\n]*|'(?:''|[^'])*'|\\b(?:$wordTokens)\\b|\\b\\d+(?:\\.\\d+)?\\b)",
+      caseSensitive: false,
+    );
+  }
+
+  static const List<String> _keywords = [
+    'SELECT',
+    'FROM',
+    'WHERE',
+    'JOIN',
+    'INNER',
+    'LEFT',
+    'RIGHT',
+    'FULL',
+    'OUTER',
+    'ON',
+    'AND',
+    'OR',
+    'ORDER',
+    'BY',
+    'GROUP',
+    'HAVING',
+    'INSERT',
+    'INTO',
+    'VALUES',
+    'UPDATE',
+    'SET',
+    'DELETE',
+    'CREATE',
+    'ALTER',
+    'DROP',
+    'TABLE',
+    'VIEW',
+    'PROCEDURE',
+    'FUNCTION',
+    'EXEC',
+    'EXECUTE',
+    'TOP',
+    'LIMIT',
+    'OFFSET',
+    'AS',
+    'DISTINCT',
+    'NULL',
+    'IS',
+    'NOT',
+    'BETWEEN',
+    'LIKE',
+    'IN',
+    'DESC',
+    'ASC',
+  ];
+
+  final DatabaseProvider provider;
+  final Set<String> _functionNames;
+  final Set<String> _dataTypeNames;
+  late final RegExp _tokenPattern;
 
   @override
   TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
@@ -1994,7 +2062,7 @@ class _SqlTextEditingController extends TextEditingController {
         spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
-      spans.add(TextSpan(text: token.toUpperCase(), style: baseStyle.merge(_styleForToken(token))));
+      spans.add(TextSpan(text: token.toUpperCase(), style: baseStyle.merge(_styleForToken(token, match.end))));
       index = match.end;
     }
 
@@ -2005,12 +2073,346 @@ class _SqlTextEditingController extends TextEditingController {
     return TextSpan(style: baseStyle, children: spans);
   }
 
-  TextStyle _styleForToken(String token) {
+  TextStyle _styleForToken(String token, int tokenEnd) {
     if (token.startsWith('--')) return const TextStyle(color: Color(0xFF7A8797), fontStyle: FontStyle.italic);
     if (token.startsWith("'")) return const TextStyle(color: Color(0xFFFFB86C));
     if (RegExp(r'^\d').hasMatch(token)) return const TextStyle(color: Color(0xFFFFD866));
+    final normalized = token.toLowerCase();
+    if (_functionNames.contains(normalized) && _isFunctionUsage(normalized, tokenEnd)) {
+      return const TextStyle(color: Color(0xFFFF4FD8), fontWeight: FontWeight.w800);
+    }
+    if (_dataTypeNames.contains(normalized)) {
+      return const TextStyle(color: Color(0xFF93E8A7), fontWeight: FontWeight.w800);
+    }
     return const TextStyle(color: Color(0xFF65B8FF), fontWeight: FontWeight.w700);
   }
+
+  bool _isFunctionUsage(String normalizedToken, int tokenEnd) {
+    if (!_keywords.map((value) => value.toLowerCase()).contains(normalizedToken)) {
+      return true;
+    }
+
+    if (_SqlFunctionCatalog.bareFunctionNames.contains(normalizedToken)) {
+      return true;
+    }
+
+    var index = tokenEnd;
+    while (index < text.length && text[index].trim().isEmpty) {
+      index++;
+    }
+
+    return index < text.length && text[index] == '(';
+  }
+}
+
+class _SqlFunctionCatalog {
+  const _SqlFunctionCatalog._();
+
+  static const Set<String> bareFunctionNames = {
+    'current_date',
+    'current_time',
+    'current_timestamp',
+    'getdate',
+    'getutcdate',
+    'localtime',
+    'localtimestamp',
+    'now',
+    'sysdate',
+    'sysdatetime',
+    'sysdatetimeoffset',
+    'systimestamp',
+    'sysutcdatetime',
+  };
+
+  static Set<String> functionsFor(DatabaseProvider provider) {
+    switch (provider) {
+      case DatabaseProvider.postgresql:
+        return _postgresql;
+      case DatabaseProvider.sqlServer:
+        return _sqlServer;
+      case DatabaseProvider.oracle:
+        return _oracle;
+    }
+  }
+
+  static const Set<String> _postgresql = {
+    'age',
+    'array_append',
+    'array_cat',
+    'array_length',
+    'array_remove',
+    'clock_timestamp',
+    'current_date',
+    'current_time',
+    'date_trunc',
+    'extract',
+    'initcap',
+    'jsonb_array_elements',
+    'jsonb_build_object',
+    'jsonb_each',
+    'jsonb_extract_path',
+    'jsonb_object_keys',
+    'localtime',
+    'localtimestamp',
+    'lpad',
+    'md5',
+    'now',
+    'position',
+    'rpad',
+    'to_ascii',
+    'to_json',
+    'to_jsonb',
+    'unnest',
+  };
+
+  static const Set<String> _sqlServer = {
+    'abs',
+    'acos',
+    'ascii',
+    'app_name',
+    'asin',
+    'atan',
+    'atn2',
+    'avg',
+    'cast',
+    'ceiling',
+    'char',
+    'charindex',
+    'choose',
+    'coalesce',
+    'col_length',
+    'col_name',
+    'concat',
+    'concat_ws',
+    'convert',
+    'cos',
+    'cot',
+    'count',
+    'count_big',
+    'cume_dist',
+    'current_timestamp',
+    'dateadd',
+    'datediff',
+    'datediff_big',
+    'datefromparts',
+    'datename',
+    'datepart',
+    'datetime2fromparts',
+    'db_id',
+    'db_name',
+    'degrees',
+    'dense_rank',
+    'difference',
+    'day',
+    'eomonth',
+    'exp',
+    'first_value',
+    'floor',
+    'format',
+    'getdate',
+    'getutcdate',
+    'host_name',
+    'ident_current',
+    'ident_incr',
+    'ident_seed',
+    'iif',
+    'isdate',
+    'isjson',
+    'isnull',
+    'json_modify',
+    'json_query',
+    'json_value',
+    'lag',
+    'last_value',
+    'lead',
+    'left',
+    'len',
+    'log',
+    'log10',
+    'lower',
+    'ltrim',
+    'max',
+    'min',
+    'month',
+    'nchar',
+    'ntile',
+    'nullif',
+    'object_id',
+    'object_name',
+    'openjson',
+    'parse',
+    'patindex',
+    'percent_rank',
+    'pi',
+    'power',
+    'quotename',
+    'radians',
+    'rand',
+    'rank',
+    'replace',
+    'replicate',
+    'reverse',
+    'right',
+    'row_number',
+    'round',
+    'rtrim',
+    'scope_identity',
+    'serverproperty',
+    'sign',
+    'sin',
+    'smalldatetimefromparts',
+    'soundex',
+    'space',
+    'sqrt',
+    'square',
+    'str',
+    'string_agg',
+    'string_escape',
+    'string_split',
+    'stuff',
+    'substring',
+    'sum',
+    'switchoffset',
+    'sysdatetime',
+    'sysdatetimeoffset',
+    'sysutcdatetime',
+    'tan',
+    'timefromparts',
+    'todatetimeoffset',
+    'translate',
+    'trim',
+    'try_cast',
+    'try_convert',
+    'try_parse',
+    'unicode',
+    'upper',
+    'user_name',
+    'year',
+  };
+
+  static const Set<String> _oracle = {
+    'add_months',
+    'instr',
+    'last_day',
+    'months_between',
+    'next_day',
+    'nvl',
+    'nvl2',
+    'regexp_replace',
+    'regexp_substr',
+    'sysdate',
+    'systimestamp',
+    'timestamp_to_scn',
+    'to_char',
+    'to_date',
+    'to_number',
+  };
+}
+
+class _SqlDataTypeCatalog {
+  const _SqlDataTypeCatalog._();
+
+  static Set<String> dataTypesFor(DatabaseProvider provider) {
+    switch (provider) {
+      case DatabaseProvider.postgresql:
+        return _postgresql;
+      case DatabaseProvider.sqlServer:
+        return _sqlServer;
+      case DatabaseProvider.oracle:
+        return _oracle;
+    }
+  }
+
+  static const Set<String> _postgresql = {
+    'bigint',
+    'bigserial',
+    'bit',
+    'boolean',
+    'bytea',
+    'char',
+    'character',
+    'date',
+    'decimal',
+    'double',
+    'inet',
+    'int',
+    'integer',
+    'interval',
+    'json',
+    'jsonb',
+    'money',
+    'numeric',
+    'real',
+    'serial',
+    'smallint',
+    'smallserial',
+    'text',
+    'time',
+    'timestamp',
+    'timestamptz',
+    'uuid',
+    'varchar',
+    'xml',
+  };
+
+  static const Set<String> _sqlServer = {
+    'bigint',
+    'binary',
+    'bit',
+    'char',
+    'date',
+    'datetime',
+    'datetime2',
+    'datetimeoffset',
+    'decimal',
+    'float',
+    'geography',
+    'geometry',
+    'hierarchyid',
+    'image',
+    'int',
+    'money',
+    'nchar',
+    'ntext',
+    'numeric',
+    'nvarchar',
+    'real',
+    'smalldatetime',
+    'smallint',
+    'smallmoney',
+    'sql_variant',
+    'text',
+    'time',
+    'timestamp',
+    'tinyint',
+    'uniqueidentifier',
+    'varbinary',
+    'varchar',
+    'xml',
+  };
+
+  static const Set<String> _oracle = {
+    'bfile',
+    'binary_double',
+    'binary_float',
+    'blob',
+    'char',
+    'clob',
+    'date',
+    'float',
+    'interval',
+    'long',
+    'nchar',
+    'nclob',
+    'number',
+    'nvarchar2',
+    'raw',
+    'rowid',
+    'timestamp',
+    'urowid',
+    'varchar2',
+    'xmltype',
+  };
 }
 
 enum _MessageKind { success, warning, error, info }
