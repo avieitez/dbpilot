@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import '../../core/constants/app_assets.dart';
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
@@ -21,13 +20,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   final _storageService = SavedConnectionStorageService();
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
-
-  late final AnimationController _startupDotsController;
 
   BannerAd? _bannerAd;
 
@@ -43,10 +39,6 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _startupDotsController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat();
     _loadData();
     _loadBanner();
   }
@@ -76,10 +68,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     if (!mounted) return;
-
-    if (_startupDotsController.isAnimating) {
-      _startupDotsController.stop();
-    }
 
     setState(() {
       _connections = connections.reversed.toList();
@@ -903,77 +891,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildStartupScreen() {
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset(
-            AppAssets.appIcon,
-            width: 104,
-            height: 104,
-            fit: BoxFit.contain,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Connect to your databases',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF536276),
-              fontSize: 22,
-              fontWeight: FontWeight.w400,
-              height: 1.15,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'your way,',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF05080D),
-              fontSize: 27,
-              fontWeight: FontWeight.w900,
-              height: 1.08,
-            ),
-          ),
-          const Text(
-            'anytime, anywhere.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF05080D),
-              fontSize: 25,
-              fontWeight: FontWeight.w900,
-              height: 1.08,
-            ),
-          ),
-          const SizedBox(height: 60),
-          AnimatedBuilder(
-            animation: _startupDotsController,
-            builder: (context, _) {
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  3,
-                  (index) => _StartupDot(
-                    active: _startupDotActiveIndex == index,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  int get _startupDotActiveIndex {
-    final value = (_startupDotsController.value * 3).floor();
-    return value.clamp(0, 2).toInt();
-  }
-
   Widget _bottomNavItem({
     required int index,
     required IconData icon,
@@ -1080,7 +997,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
-    _startupDotsController.dispose();
     _bannerAd?.dispose();
     _apiService.dispose();
     super.dispose();
@@ -1091,7 +1007,7 @@ class _HomeScreenState extends State<HomeScreen>
     Widget content;
 
     if (_loading) {
-      content = _buildStartupScreen();
+      content = const Center(child: CircularProgressIndicator());
     } else if (_selectedIndex == 0) {
       content = _buildConnectionsList();
     } else if (_selectedIndex == 1) {
@@ -1129,27 +1045,6 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
       bottomNavigationBar: _loading ? null : _buildBottomNav(),
-    );
-  }
-}
-
-class _StartupDot extends StatelessWidget {
-  const _StartupDot({required this.active});
-
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutCubic,
-      width: active ? 9 : 8,
-      height: active ? 9 : 8,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFFBFE0FF) : const Color(0xFFE0E5EA),
-        shape: BoxShape.circle,
-      ),
     );
   }
 }
