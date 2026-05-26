@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dbpilot/models/database_provider.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../models/connection_request.dart';
@@ -48,10 +50,17 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   int _selectedTab = 0;
   int _limit = 100;
   int _timeoutSeconds = 30;
+  int _resultsPage = 0;
+  int _rowsPerPage = 10;
   bool _safeMode = true;
   bool _executing = false;
+  bool _savingExecutedQuery = false;
+  bool _allowPopAfterPendingSaveAttempt = false;
+  Future<void>? _savingExecutedQueryFuture;
   Duration? _lastDuration;
   String? _errorMessage;
+  String? _lastSuccessfulSql;
+  String? _lastSavedSql;
   QueryExecuteResult? _result;
   final List<_HistoryEntry> _history = [];
   final List<String> _messages = [];
@@ -123,6 +132,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     setState(() {
       _executing = true;
+      _allowPopAfterPendingSaveAttempt = false;
       _errorMessage = null;
       _selectedTab = 1;
     });
@@ -147,11 +157,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       ).timeout(Duration(seconds: _timeoutSeconds));
 
       watch.stop();
+      _lastSuccessfulSql = sqlToExecute;
+      await _saveExecutedQuery(sqlToExecute);
+
       if (!mounted) return;
       setState(() {
         _result = result;
         _lastDuration = watch.elapsed;
         _executing = false;
+        _resultsPage = 0;
         _history.insert(0, _HistoryEntry(sql: sql, dateTime: DateTime.now(), message: result.message));
         if (_history.length > 50) _history.removeLast();
       });
@@ -159,7 +173,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount),
         includeExecutionSettings: true,
       );
-      await _saveExecutedQuery(sqlToExecute);
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
@@ -181,17 +194,56 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
   }
 
+  bool get _hasPendingSuccessfulQuerySave {
+    final sql = _lastSuccessfulSql;
+    return sql != null && sql != _lastSavedSql;
+  }
+
+  Future<void> _savePendingSuccessfulQuery() async {
+    final sql = _lastSuccessfulSql;
+    if (sql == null || sql == _lastSavedSql) return;
+
+    await _saveExecutedQuery(sql);
+  }
+
   Future<void> _saveExecutedQuery(String sql) async {
+    if (sql == _lastSavedSql) return;
+    if (_savingExecutedQuery) {
+      await _savingExecutedQueryFuture;
+      return;
+    }
+
+    _savingExecutedQuery = true;
+    _savingExecutedQueryFuture = _saveExecutedQueryNow(sql);
+
+    await _savingExecutedQueryFuture;
+  }
+
+  Future<void> _saveExecutedQueryNow(String sql) async {
     try {
       await _historyService.saveQuery(
         provider: widget.connection.provider.apiValue,
         connectionName: widget.connection.name,
         sql: sql,
       );
+      _lastSavedSql = sql;
     } catch (error) {
       if (!mounted) return;
       _addMessage('Query executed, but it could not be saved: $error');
+    } finally {
+      _savingExecutedQuery = false;
+      _savingExecutedQueryFuture = null;
     }
+  }
+
+  Future<void> _handlePendingSaveBeforePop(bool didPop) async {
+    if (didPop) return;
+
+    await _savePendingSuccessfulQuery();
+
+    if (!mounted) return;
+    _allowPopAfterPendingSaveAttempt = true;
+    Navigator.of(context).pop();
   }
 
   void _addMessage(String message, {bool includeExecutionSettings = false}) {
@@ -211,6 +263,73 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     return '"$escaped"';
   }
 
+  List<Map<String, dynamic>> _resultRowsAsMaps(QueryExecuteResult result) {
+    return result.rows.map((row) {
+      final item = <String, dynamic>{};
+      for (var i = 0; i < result.columns.length; i++) {
+        item[result.columns[i]] = i < row.length ? row[i] : null;
+      }
+      return item;
+    }).toList();
+  }
+
+  String _resultsAsDelimitedText(QueryExecuteResult result, String separator) {
+    final buffer = StringBuffer();
+    buffer.writeln(result.columns.map(_csvEscape).join(separator));
+
+    for (final row in result.rows) {
+      final values = <String>[];
+
+      for (var i = 0; i < result.columns.length; i++) {
+        final value = i < row.length ? row[i] : '';
+        values.add(_csvEscape(value));
+      }
+
+      buffer.writeln(values.join(separator));
+    }
+
+    return buffer.toString();
+  }
+
+  Future<void> _shareTextFile({
+    required String content,
+    required String fileName,
+    required String shareText,
+  }) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final file = File('${directory.path}/$fileName');
+    await file.writeAsString(content, flush: true);
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: shareText,
+    );
+  }
+
+  String _exportTimestamp() {
+    return DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '')
+        .replaceAll('.', '')
+        .replaceAll('-', '')
+        .replaceAll('T', '_');
+  }
+
+  Future<void> _copyResultsToClipboard() async {
+    final result = _result;
+
+    if (result == null || result.rows.isEmpty) {
+      _addMessage('No rows to copy.');
+      return;
+    }
+
+    await Clipboard.setData(
+      ClipboardData(text: _resultsAsDelimitedText(result, '\t')),
+    );
+
+    _addMessage('Results copied to clipboard.');
+  }
+
   Future<void> _exportResultsToCsv() async {
     final result = _result;
 
@@ -220,42 +339,58 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     try {
-      final buffer = StringBuffer();
-
-      buffer.writeln(
-        result.columns.map(_csvEscape).join(','),
-      );
-
-      for (final row in result.rows) {
-        final values = <String>[];
-
-        for (var i = 0; i < result.columns.length; i++) {
-          final value = i < row.length ? row[i] : '';
-          values.add(_csvEscape(value));
-        }
-
-        buffer.writeln(values.join(','));
-      }
-
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '')
-          .replaceAll('.', '')
-          .replaceAll('-', '')
-          .replaceAll('T', '_');
-
-      final file = File('${directory.path}/results_$timestamp.csv');
-      await file.writeAsString(buffer.toString(), flush: true);
-
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: 'Query results CSV',
+      await _shareTextFile(
+        content: _resultsAsDelimitedText(result, ','),
+        fileName: 'results_${_exportTimestamp()}.csv',
+        shareText: 'Query results CSV',
       );
 
       _addMessage('CSV exported successfully.');
     } catch (error) {
       _addMessage('CSV export failed: $error');
+    }
+  }
+
+  Future<void> _exportResultsToJson() async {
+    final result = _result;
+
+    if (result == null || result.rows.isEmpty) {
+      _addMessage('No rows to export.');
+      return;
+    }
+
+    try {
+      const encoder = JsonEncoder.withIndent('  ');
+      await _shareTextFile(
+        content: encoder.convert(_resultRowsAsMaps(result)),
+        fileName: 'results_${_exportTimestamp()}.json',
+        shareText: 'Query results JSON',
+      );
+
+      _addMessage('JSON exported successfully.');
+    } catch (error) {
+      _addMessage('JSON export failed: $error');
+    }
+  }
+
+  Future<void> _exportResultsToExcel() async {
+    final result = _result;
+
+    if (result == null || result.rows.isEmpty) {
+      _addMessage('No rows to export.');
+      return;
+    }
+
+    try {
+      await _shareTextFile(
+        content: _resultsAsDelimitedText(result, '\t'),
+        fileName: 'results_${_exportTimestamp()}.xls',
+        shareText: 'Query results Excel',
+      );
+
+      _addMessage('Excel export generated successfully.');
+    } catch (error) {
+      _addMessage('Excel export failed: $error');
     }
   }
 
@@ -407,9 +542,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
 
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      appBar: AppBar(
+    return PopScope(
+      canPop: _allowPopAfterPendingSaveAttempt || !_hasPendingSuccessfulQuerySave,
+      onPopInvoked: _handlePendingSaveBeforePop,
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        appBar: AppBar(
         titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,24 +559,25 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         actions: [
           IconButton(onPressed: _clearEditor, icon: const Icon(Icons.delete_sweep_rounded), tooltip: AppStrings.clear),
         ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _QueryTabs(selectedIndex: _selectedTab, onChanged: (index) => setState(() => _selectedTab = index)),
-            Expanded(
-              child: IndexedStack(
-                index: _selectedTab,
-                children: [
-                  _buildEditor(theme, colors),
-                  _buildResults(theme, colors),
-                  _buildMessages(theme, colors),
-                  _buildHistory(theme, colors),
-                ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _QueryTabs(selectedIndex: _selectedTab, onChanged: (index) => setState(() => _selectedTab = index)),
+              Expanded(
+                child: IndexedStack(
+                  index: _selectedTab,
+                  children: [
+                    _buildEditor(theme, colors),
+                    _buildResults(theme, colors),
+                    _buildMessages(theme, colors),
+                    _buildHistory(theme, colors),
+                  ],
+                ),
               ),
-            ),
-            _buildBottomBar(theme, colors),
-          ],
+              _buildBottomBar(theme, colors),
+            ],
+          ),
         ),
       ),
     );
@@ -669,46 +808,89 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
     if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
 
+    final totalRows = result.rows.length;
+    final pageCount = (totalRows / _rowsPerPage).ceil().clamp(1, 999999).toInt();
+    final page = _resultsPage.clamp(0, pageCount - 1).toInt();
+    final start = page * _rowsPerPage;
+    final end = (start + _rowsPerPage).clamp(0, totalRows).toInt();
+    final pageRows = result.rows.sublist(start, end);
+    final successMessage = _lastDuration == null
+        ? 'Query executed successfully'
+        : 'Query executed successfully in ${_lastDuration!.inMilliseconds} ms';
+
     return Column(
       children: [
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: BoxDecoration(color: colors.primaryContainer.withOpacity(0.18), border: Border(bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)))),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0B111D),
+            border: Border(
+              bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)),
+            ),
+          ),
           child: Row(
             children: [
-              Expanded(child: Text('Results — ${result.rowCount} rows${_lastDuration == null ? '' : ' in ${(_lastDuration!.inMilliseconds / 1000).toStringAsFixed(2)} sec'}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200))),
-              IconButton(onPressed: (_result == null || _result!.rows.isEmpty)
-                      ? null
-                      : _exportResultsToCsv, icon: const Icon(Icons.download_rounded)),
+              Expanded(
+                child: Text(
+                  'Results (${result.rowCount})',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: const Color(0xFFE6EBF4),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
               IconButton(onPressed: _executing ? null : _execute, icon: const Icon(Icons.refresh_rounded)),
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          child: _ResultSuccessBanner(message: successMessage),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          child: _ExportToolbar(
+            hasRows: result.rows.isNotEmpty,
+            onCopy: _copyResultsToClipboard,
+            onCsv: _exportResultsToCsv,
+            onJson: _exportResultsToJson,
+            onExcel: _exportResultsToExcel,
+          ),
+        ),
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowColor: MaterialStateProperty.all(colors.surfaceContainerHighest.withOpacity(0.65)),
-                dataRowColor: MaterialStateProperty.all(colors.primaryContainer.withOpacity(0.10)),
-                border: TableBorder.all(color: colors.outlineVariant.withOpacity(0.35), width: 0.8),
-                headingRowHeight: 44,
-                dataRowMinHeight: 44,
-                dataRowMaxHeight: 58,
-                columns: [
-                  DataColumn(label: Text('#', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200))),
-                  ...result.columns.map((c) => DataColumn(label: Text(c, style: TextStyle(fontWeight: FontWeight.w900, color: Colors.greenAccent.shade200)))),
-                ],
-                rows: List.generate(result.rows.length, (index) {
-                  final row = result.rows[index];
-                  return DataRow(cells: [
-                    DataCell(Text('${index + 1}', style: TextStyle(color: colors.onSurfaceVariant))),
-                    ...row.map((v) => DataCell(SelectableText(v?.toString() ?? 'NULL'))),
-                  ]);
-                }),
-              ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _ResultsGrid(
+              columns: result.columns,
+              rows: pageRows,
+              firstRowNumber: start + 1,
             ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: _ResultsPager(
+            start: totalRows == 0 ? 0 : start + 1,
+            end: end,
+            total: totalRows,
+            rowsPerPage: _rowsPerPage,
+            canGoPrevious: page > 0,
+            canGoNext: page < pageCount - 1,
+            onRowsPerPageChanged: (value) {
+              setState(() {
+                _rowsPerPage = value;
+                _resultsPage = 0;
+              });
+            },
+            onPrevious: () {
+              if (page == 0) return;
+              setState(() => _resultsPage = page - 1);
+            },
+            onNext: () {
+              if (page >= pageCount - 1) return;
+              setState(() => _resultsPage = page + 1);
+            },
           ),
         ),
       ],
@@ -933,6 +1115,470 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       ),
     );
     return result == true;
+  }
+}
+
+class _ResultSuccessBanner extends StatelessWidget {
+  const _ResultSuccessBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF15312D),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF295046)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: const BoxDecoration(
+              color: Color(0xFF5BA84F),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFFF3F7FB),
+                    fontWeight: FontWeight.w800,
+                    height: 1.22,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExportToolbar extends StatelessWidget {
+  const _ExportToolbar({
+    required this.hasRows,
+    required this.onCopy,
+    required this.onCsv,
+    required this.onJson,
+    required this.onExcel,
+  });
+
+  final bool hasRows;
+  final VoidCallback onCopy;
+  final VoidCallback onCsv;
+  final VoidCallback onJson;
+  final VoidCallback onExcel;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _ExportButton(
+            icon: Icons.copy_all_rounded,
+            label: 'Copy',
+            enabled: hasRows,
+            onPressed: onCopy,
+          ),
+          const SizedBox(width: 8),
+          _ExportButton(
+            icon: Icons.description_rounded,
+            label: 'CSV',
+            enabled: hasRows,
+            onPressed: onCsv,
+          ),
+          const SizedBox(width: 8),
+          _ExportButton(
+            icon: Icons.data_object_rounded,
+            label: 'JSON',
+            enabled: hasRows,
+            onPressed: onJson,
+          ),
+          const SizedBox(width: 8),
+          _ExportButton(
+            icon: Icons.table_chart_rounded,
+            label: 'Excel',
+            enabled: hasRows,
+            onPressed: onExcel,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExportButton extends StatelessWidget {
+  const _ExportButton({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: enabled ? onPressed : null,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFE7EDF7),
+        disabledForegroundColor: Colors.white30,
+        side: BorderSide(color: Colors.white.withOpacity(0.24)),
+        backgroundColor: const Color(0xFF121925),
+        minimumSize: const Size(82, 40),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        textStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+        ),
+      ),
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
+  }
+}
+
+class _ResultsGrid extends StatelessWidget {
+  const _ResultsGrid({
+    required this.columns,
+    required this.rows,
+    required this.firstRowNumber,
+  });
+
+  static const double _indexWidth = 52;
+  static const double _columnWidth = 128;
+
+  final List<String> columns;
+  final List<List<dynamic>> rows;
+  final int firstRowNumber;
+
+  @override
+  Widget build(BuildContext context) {
+    final tableWidth = _indexWidth + (columns.length * _columnWidth);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B111D),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: tableWidth,
+          child: Column(
+            children: [
+              _ResultRow(
+                cells: ['#', ...columns],
+                columnNames: columns,
+                indexWidth: _indexWidth,
+                columnWidth: _columnWidth,
+                header: true,
+              ),
+              Expanded(
+                child: rows.isEmpty
+                    ? const Center(child: Text('No rows to show.'))
+                    : ListView.builder(
+                        itemCount: rows.length,
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          return _ResultRow(
+                            cells: [
+                              '${firstRowNumber + index}',
+                              ...List.generate(
+                                columns.length,
+                                (columnIndex) => columnIndex < row.length
+                                    ? row[columnIndex]
+                                    : null,
+                              ),
+                            ],
+                            columnNames: columns,
+                            indexWidth: _indexWidth,
+                            columnWidth: _columnWidth,
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultRow extends StatelessWidget {
+  const _ResultRow({
+    required this.cells,
+    required this.columnNames,
+    required this.indexWidth,
+    required this.columnWidth,
+    this.header = false,
+  });
+
+  final List<dynamic> cells;
+  final List<String> columnNames;
+  final double indexWidth;
+  final double columnWidth;
+  final bool header;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: header ? 44 : 46,
+      decoration: BoxDecoration(
+        color: header ? const Color(0xFF18243A) : const Color(0xFF0B111D),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withOpacity(0.13)),
+        ),
+      ),
+      child: Row(
+        children: List.generate(cells.length, (index) {
+          return _ResultCell(
+            value: cells[index],
+            columnName: index == 0 ? null : columnNames[index - 1],
+            width: index == 0 ? indexWidth : columnWidth,
+            header: header,
+            centered: index == 0,
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _ResultCell extends StatelessWidget {
+  const _ResultCell({
+    required this.value,
+    required this.columnName,
+    required this.width,
+    required this.header,
+    required this.centered,
+  });
+
+  final dynamic value;
+  final String? columnName;
+  final double width;
+  final bool header;
+  final bool centered;
+
+  @override
+  Widget build(BuildContext context) {
+    final boolValue = _BooleanDisplay.from(value, columnName: columnName);
+
+    return Container(
+      width: width,
+      height: double.infinity,
+      alignment: centered ? Alignment.center : Alignment.centerLeft,
+      padding: EdgeInsets.symmetric(horizontal: centered ? 6 : 10),
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Colors.white.withOpacity(0.16)),
+        ),
+      ),
+      child: header
+          ? Text(
+              value.toString(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF93E8A7),
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
+            )
+          : boolValue == null
+              ? SelectableText(
+                  value?.toString() ?? 'NULL',
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: value == null
+                        ? Colors.white.withOpacity(0.44)
+                        : const Color(0xFFE8EDF5),
+                    fontSize: 13,
+                    fontWeight: centered ? FontWeight.w800 : FontWeight.w600,
+                  ),
+                )
+              : _BooleanStatusChip(value: boolValue),
+    );
+  }
+}
+
+class _BooleanStatusChip extends StatelessWidget {
+  const _BooleanStatusChip({required this.value});
+
+  final bool value;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = value ? const Color(0xFF91D765) : const Color(0xFFFF6B4A);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.32)),
+      ),
+      child: Text(
+        value ? 'Active' : 'Inactive',
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _BooleanDisplay {
+  const _BooleanDisplay._();
+
+  static bool? from(dynamic value, {String? columnName}) {
+    if (value is bool) return value;
+    if (value is num) {
+      if (!_isBooleanLikeColumn(columnName)) return null;
+      if (value == 1) return true;
+      if (value == 0) return false;
+    }
+
+    final text = value?.toString().trim().toLowerCase();
+    if (text == null || text.isEmpty) return null;
+
+    if (const {'true', 't', 'yes', 'y'}.contains(text)) return true;
+    if (const {'false', 'f', 'no', 'n'}.contains(text)) return false;
+    if (_isBooleanLikeColumn(columnName)) {
+      if (text == '1') return true;
+      if (text == '0') return false;
+    }
+
+    return null;
+  }
+
+  static bool _isBooleanLikeColumn(String? columnName) {
+    final normalized = columnName?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return false;
+
+    return normalized == 'status' ||
+        normalized == 'active' ||
+        normalized == 'enabled' ||
+        normalized == 'is_active' ||
+        normalized == 'isactive' ||
+        normalized == 'is_enabled' ||
+        normalized == 'isenabled' ||
+        normalized.startsWith('is_') ||
+        normalized.startsWith('has_');
+  }
+}
+
+class _ResultsPager extends StatelessWidget {
+  const _ResultsPager({
+    required this.start,
+    required this.end,
+    required this.total,
+    required this.rowsPerPage,
+    required this.canGoPrevious,
+    required this.canGoNext,
+    required this.onRowsPerPageChanged,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int start;
+  final int end;
+  final int total;
+  final int rowsPerPage;
+  final bool canGoPrevious;
+  final bool canGoNext;
+  final ValueChanged<int> onRowsPerPageChanged;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Divider(color: Colors.white.withOpacity(0.24), height: 1),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$start-$end/$total',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFE6EBF4),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 82,
+              child: DropdownButton<int>(
+                value: rowsPerPage,
+                isExpanded: true,
+                underline: const SizedBox.shrink(),
+                style: const TextStyle(
+                  color: Color(0xFFE6EBF4),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                items: const [5, 10, 25, 50]
+                    .map(
+                      (value) => DropdownMenuItem<int>(
+                        value: value,
+                        child: Text('$value rows'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) onRowsPerPageChanged(value);
+                },
+              ),
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              onPressed: canGoPrevious ? onPrevious : null,
+              icon: const Icon(Icons.chevron_left_rounded),
+              visualDensity: VisualDensity.compact,
+              iconSize: 24,
+              tooltip: 'Previous',
+            ),
+            IconButton(
+              onPressed: canGoNext ? onNext : null,
+              icon: const Icon(Icons.chevron_right_rounded),
+              visualDensity: VisualDensity.compact,
+              iconSize: 24,
+              tooltip: 'Next',
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
