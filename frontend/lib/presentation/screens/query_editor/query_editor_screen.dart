@@ -146,12 +146,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         timeoutSeconds: _timeoutSeconds,
       ).timeout(Duration(seconds: _timeoutSeconds));
 
-      await _historyService.saveQuery(
-        provider: widget.connection.provider.apiValue,
-        connectionName: widget.connection.name,
-        sql: sqlToExecute,
-      );
-      
       watch.stop();
       if (!mounted) return;
       setState(() {
@@ -165,6 +159,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         QeStrings.queryExecuted(watch.elapsedMilliseconds, result.rowCount),
         includeExecutionSettings: true,
       );
+      await _saveExecutedQuery(sqlToExecute);
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
@@ -183,6 +178,19 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         _selectedTab = 2;
       });
       _addMessage('ERROR: $message');
+    }
+  }
+
+  Future<void> _saveExecutedQuery(String sql) async {
+    try {
+      await _historyService.saveQuery(
+        provider: widget.connection.provider.apiValue,
+        connectionName: widget.connection.name,
+        sql: sql,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _addMessage('Query executed, but it could not be saved: $error');
     }
   }
 
