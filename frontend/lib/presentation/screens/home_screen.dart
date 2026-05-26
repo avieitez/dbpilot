@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../core/constants/app_assets.dart';
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
@@ -20,10 +21,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   final _storageService = SavedConnectionStorageService();
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
+
+  late final AnimationController _startupDotsController;
 
   BannerAd? _bannerAd;
 
@@ -39,6 +43,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _startupDotsController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
     _loadData();
     _loadBanner();
   }
@@ -68,6 +76,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (!mounted) return;
+
+    if (_startupDotsController.isAnimating) {
+      _startupDotsController.stop();
+    }
 
     setState(() {
       _connections = connections.reversed.toList();
@@ -891,6 +903,77 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildStartupScreen() {
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Image.asset(
+            AppAssets.appIcon,
+            width: 104,
+            height: 104,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Connect to your databases',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF536276),
+              fontSize: 22,
+              fontWeight: FontWeight.w400,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'your way,',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF05080D),
+              fontSize: 27,
+              fontWeight: FontWeight.w900,
+              height: 1.08,
+            ),
+          ),
+          const Text(
+            'anytime, anywhere.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Color(0xFF05080D),
+              fontSize: 25,
+              fontWeight: FontWeight.w900,
+              height: 1.08,
+            ),
+          ),
+          const SizedBox(height: 60),
+          AnimatedBuilder(
+            animation: _startupDotsController,
+            builder: (context, _) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  3,
+                  (index) => _StartupDot(
+                    active: _startupDotActiveIndex == index,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  int get _startupDotActiveIndex {
+    final value = (_startupDotsController.value * 3).floor();
+    return value.clamp(0, 2).toInt();
+  }
+
   Widget _bottomNavItem({
     required int index,
     required IconData icon,
@@ -901,34 +984,63 @@ class _HomeScreenState extends State<HomeScreen> {
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _selectedIndex = index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          height: 58,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFF0B2A4A) : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-            border: selected
-                ? Border.all(color: const Color(0xFF2D8CFF).withOpacity(0.5))
-                : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: selected ? const Color(0xFF2D8CFF) : Colors.white54,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: selected ? const Color(0xFF2D8CFF) : Colors.white54,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          scale: selected ? 1.04 : 1,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            height: 58,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            transform: Matrix4.translationValues(0, selected ? -3 : 0, 0),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFF0B2A4A) : Colors.transparent,
+              borderRadius: BorderRadius.circular(999),
+              border: selected
+                  ? Border.all(
+                      color: const Color(0xFF2D8CFF).withOpacity(0.5),
+                    )
+                  : null,
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF2D8CFF).withOpacity(0.18),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  transitionBuilder: (child, animation) {
+                    return ScaleTransition(scale: animation, child: child);
+                  },
+                  child: Icon(
+                    icon,
+                    key: ValueKey('$label-$selected'),
+                    color:
+                        selected ? const Color(0xFF2D8CFF) : Colors.white54,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color:
+                        selected ? const Color(0xFF2D8CFF) : Colors.white54,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                  ),
+                  child: Text(label),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -968,6 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _startupDotsController.dispose();
     _bannerAd?.dispose();
     _apiService.dispose();
     super.dispose();
@@ -978,7 +1091,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Widget content;
 
     if (_loading) {
-      content = const Center(child: CircularProgressIndicator());
+      content = _buildStartupScreen();
     } else if (_selectedIndex == 0) {
       content = _buildConnectionsList();
     } else if (_selectedIndex == 1) {
@@ -1007,14 +1120,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: _buildAdSection(),
-            ),
+            if (!_loading)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: _buildAdSection(),
+              ),
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNav(),
+      bottomNavigationBar: _loading ? null : _buildBottomNav(),
+    );
+  }
+}
+
+class _StartupDot extends StatelessWidget {
+  const _StartupDot({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      width: active ? 9 : 8,
+      height: active ? 9 : 8,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFBFE0FF) : const Color(0xFFE0E5EA),
+        shape: BoxShape.circle,
+      ),
     );
   }
 }
