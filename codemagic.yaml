@@ -5,7 +5,7 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-scripts:
+    scripts:
       - name: Get Flutter packages
         script: |
           cd frontend
