@@ -7,9 +7,12 @@ workflows:
       xcode: latest
     scripts:
       - name: Get Flutter packages
-        script: flutter pub get
+        script: |
+          cd frontend
+          flutter pub get
       - name: Build iOS
         script: |
+          cd frontend
           flutter build ios --release --no-codesign
     artifacts:
-      - build/ios/iphoneos/Runner.app
+      - frontend/build/ios/iphoneos/Runner.app
