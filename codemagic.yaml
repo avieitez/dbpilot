@@ -5,11 +5,15 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-    scripts:
+scripts:
       - name: Get Flutter packages
         script: |
           cd frontend
           flutter pub get
+      - name: Disable Swift Package Manager
+        script: |
+          cd frontend
+          flutter config --no-enable-swift-package-manager
       - name: Build iOS
         script: |
           cd frontend
