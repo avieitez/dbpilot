@@ -1,0 +1,22 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    instance_type: mac_mini_m1
+    environment:
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          cd frontend
+          flutter pub get
+      - name: Disable Swift Package Manager
+        script: |
+          cd frontend
+          flutter config --no-enable-swift-package-manager
+      - name: Build iOS
+        script: |
+          cd frontend
+          flutter build ios --release --no-codesign
+    artifacts:
+      - frontend/build/ios/iphoneos/Runner.app
