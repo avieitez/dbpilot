@@ -746,6 +746,45 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildBottomBar(ThemeData theme, ColorScheme colors) {
+    final compactResultsBar = _selectedTab == 1 &&
+        _result != null &&
+        MediaQuery.of(context).size.height < 760;
+
+    if (compactResultsBar) {
+      return SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            border: Border(top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _executing ? null : _execute,
+                  icon: _executing
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.play_arrow_rounded, size: 18),
+                  label: const Text(QeStrings.executeQuery),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
+                child: IconButton.filledTonal(
+                  onPressed: () => setState(() => _safeMode = !_safeMode),
+                  icon: Icon(_safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded),
+                  color: _safeMode ? colors.primary : colors.error,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return SafeArea(
       top: false,
       child: Container(
@@ -821,82 +860,108 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         ? 'Query executed successfully'
         : 'Query executed successfully in ${_lastDuration!.inMilliseconds} ms';
 
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0B111D),
-            border: Border(
-              bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Results (${result.rowCount})',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFFE6EBF4),
-                    fontWeight: FontWeight.w900,
-                  ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 520;
+        final horizontalPadding = compact ? 8.0 : 12.0;
+
+        return Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                compact ? 8 : 12,
+                horizontalPadding,
+                compact ? 6 : 10,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B111D),
+                border: Border(
+                  bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)),
                 ),
               ),
-              IconButton(onPressed: _executing ? null : _execute, icon: const Icon(Icons.refresh_rounded)),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-          child: _ResultSuccessBanner(message: successMessage),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: _ExportToolbar(
-            hasRows: result.rows.isNotEmpty,
-            onCopy: _copyResultsToClipboard,
-            onCsv: _exportResultsToCsv,
-            onJson: _exportResultsToJson,
-            onExcel: _exportResultsToExcel,
-          ),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _ResultsGrid(
-              columns: result.columns,
-              rows: pageRows,
-              firstRowNumber: start + 1,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Results (${result.rowCount})',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: const Color(0xFFE6EBF4),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  if (compact && result.rows.isNotEmpty)
+                    _ResultsExportMenu(
+                      onCopy: _copyResultsToClipboard,
+                      onCsv: _exportResultsToCsv,
+                      onJson: _exportResultsToJson,
+                      onExcel: _exportResultsToExcel,
+                    ),
+                  IconButton(
+                    onPressed: _executing ? null : _execute,
+                    icon: const Icon(Icons.refresh_rounded),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-          child: _ResultsPager(
-            start: totalRows == 0 ? 0 : start + 1,
-            end: end,
-            total: totalRows,
-            rowsPerPage: _rowsPerPage,
-            canGoPrevious: page > 0,
-            canGoNext: page < pageCount - 1,
-            onRowsPerPageChanged: (value) {
-              setState(() {
-                _rowsPerPage = value;
-                _resultsPage = 0;
-              });
-            },
-            onPrevious: () {
-              if (page == 0) return;
-              setState(() => _resultsPage = page - 1);
-            },
-            onNext: () {
-              if (page >= pageCount - 1) return;
-              setState(() => _resultsPage = page + 1);
-            },
-          ),
-        ),
-      ],
+            if (!compact)
+              Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 8),
+                child: _ResultSuccessBanner(message: successMessage),
+              ),
+            if (!compact)
+              Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 10),
+                child: _ExportToolbar(
+                  hasRows: result.rows.isNotEmpty,
+                  onCopy: _copyResultsToClipboard,
+                  onCsv: _exportResultsToCsv,
+                  onJson: _exportResultsToJson,
+                  onExcel: _exportResultsToExcel,
+                ),
+              ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                child: _ResultsGrid(
+                  columns: result.columns,
+                  rows: pageRows,
+                  firstRowNumber: start + 1,
+                ),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(horizontalPadding, compact ? 6 : 10, horizontalPadding, compact ? 8 : 12),
+              child: _ResultsPager(
+                compact: compact,
+                start: totalRows == 0 ? 0 : start + 1,
+                end: end,
+                total: totalRows,
+                rowsPerPage: _rowsPerPage,
+                canGoPrevious: page > 0,
+                canGoNext: page < pageCount - 1,
+                onRowsPerPageChanged: (value) {
+                  setState(() {
+                    _rowsPerPage = value;
+                    _resultsPage = 0;
+                  });
+                },
+                onPrevious: () {
+                  if (page == 0) return;
+                  setState(() => _resultsPage = page - 1);
+                },
+                onNext: () {
+                  if (page >= pageCount - 1) return;
+                  setState(() => _resultsPage = page + 1);
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1262,6 +1327,50 @@ class _ExportButton extends StatelessWidget {
   }
 }
 
+class _ResultsExportMenu extends StatelessWidget {
+  const _ResultsExportMenu({
+    required this.onCopy,
+    required this.onCsv,
+    required this.onJson,
+    required this.onExcel,
+  });
+
+  final VoidCallback onCopy;
+  final VoidCallback onCsv;
+  final VoidCallback onJson;
+  final VoidCallback onExcel;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Export',
+      icon: const Icon(Icons.file_download_outlined),
+      onSelected: (value) {
+        switch (value) {
+          case 'copy':
+            onCopy();
+            break;
+          case 'csv':
+            onCsv();
+            break;
+          case 'json':
+            onJson();
+            break;
+          case 'excel':
+            onExcel();
+            break;
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: 'copy', child: Text('Copy')),
+        PopupMenuItem(value: 'csv', child: Text('CSV')),
+        PopupMenuItem(value: 'json', child: Text('JSON')),
+        PopupMenuItem(value: 'excel', child: Text('Excel')),
+      ],
+    );
+  }
+}
+
 class _ResultsGrid extends StatelessWidget {
   const _ResultsGrid({
     required this.columns,
@@ -1498,6 +1607,7 @@ class _BooleanDisplay {
 
 class _ResultsPager extends StatelessWidget {
   const _ResultsPager({
+    required this.compact,
     required this.start,
     required this.end,
     required this.total,
@@ -1509,6 +1619,7 @@ class _ResultsPager extends StatelessWidget {
     required this.onNext,
   });
 
+  final bool compact;
   final int start;
   final int end;
   final int total;
@@ -1524,7 +1635,7 @@ class _ResultsPager extends StatelessWidget {
     return Column(
       children: [
         Divider(color: Colors.white.withOpacity(0.24), height: 1),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 4 : 8),
         Row(
           children: [
             Expanded(
@@ -1534,29 +1645,30 @@ class _ResultsPager extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Color(0xFFE6EBF4),
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ),
             SizedBox(
-              width: 82,
+              width: compact ? 74 : 82,
               child: DropdownButton<int>(
                 value: rowsPerPage,
                 isExpanded: true,
+                isDense: true,
                 underline: const SizedBox.shrink(),
                 style: const TextStyle(
                   color: Color(0xFFE6EBF4),
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
                 items: const [5, 10, 25, 50]
-                    .map(
-                      (value) => DropdownMenuItem<int>(
-                        value: value,
-                        child: Text('$value rows'),
-                      ),
-                    )
+                  .map(
+                    (value) => DropdownMenuItem<int>(
+                      value: value,
+                      child: Text(compact ? '$value' : '$value rows'),
+                    ),
+                  )
                     .toList(),
                 onChanged: (value) {
                   if (value != null) onRowsPerPageChanged(value);
