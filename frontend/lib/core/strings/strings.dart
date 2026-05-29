@@ -72,6 +72,7 @@ class QeStrings {
   static const String transaction = 'Transaction';
   static const String execute = 'Execute';
   static const String executeQuery = 'Execute Query';
+  static const String runQuery = 'Run Query';
 
   static const List<String> tabs = ['Editor', 'Results', 'Messages', 'History'];
 

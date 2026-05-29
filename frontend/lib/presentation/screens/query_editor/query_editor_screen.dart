@@ -40,6 +40,7 @@ class QueryEditorScreen extends StatefulWidget {
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
   static const double _editorLineHeight = 21;
+  static final Map<String, _QueryEditorSessionSnapshot> _sessionSnapshots = {};
 
   final _historyService = QueryHistoryStorageService();
   late final _SqlTextEditingController _sqlController;
@@ -65,6 +66,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   final List<_HistoryEntry> _history = [];
   final List<String> _messages = [];
 
+  String get _sessionKey => [
+        widget.connection.provider.apiValue,
+        widget.connection.name,
+        widget.connectionSummary,
+      ].join('|');
+
   @override
   void initState() {
     super.initState();
@@ -72,11 +79,33 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     _editorFocusNode = FocusNode();
     _editorFocusNode.addListener(_refreshEditorChrome);
     _editorScrollController = ScrollController();
+    final snapshot = _sessionSnapshots[_sessionKey];
     _sqlController = _SqlTextEditingController(
       provider: widget.connection.provider,
-      text: _initialSql(),
+      text: widget.initialSql == null && snapshot?.sql.trim().isNotEmpty == true
+          ? snapshot!.sql
+          : _initialSql(),
     );
     _sqlController.addListener(_refreshEditorChrome);
+    if (snapshot != null) {
+      _selectedTab = snapshot.selectedTab;
+      _limit = snapshot.limit;
+      _timeoutSeconds = snapshot.timeoutSeconds;
+      _resultsPage = snapshot.resultsPage;
+      _rowsPerPage = snapshot.rowsPerPage;
+      _safeMode = snapshot.safeMode;
+      _lastDuration = snapshot.lastDuration;
+      _errorMessage = snapshot.errorMessage;
+      _lastSuccessfulSql = snapshot.lastSuccessfulSql;
+      _lastSavedSql = snapshot.lastSavedSql;
+      _result = snapshot.result;
+      _history
+        ..clear()
+        ..addAll(snapshot.history);
+      _messages
+        ..clear()
+        ..addAll(snapshot.messages);
+    }
   }
 
   void _refreshEditorChrome() {
@@ -531,6 +560,22 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   @override
   void dispose() {
+    _sessionSnapshots[_sessionKey] = _QueryEditorSessionSnapshot(
+      sql: _sqlController.text,
+      selectedTab: _selectedTab,
+      limit: _limit,
+      timeoutSeconds: _timeoutSeconds,
+      resultsPage: _resultsPage,
+      rowsPerPage: _rowsPerPage,
+      safeMode: _safeMode,
+      lastDuration: _lastDuration,
+      errorMessage: _errorMessage,
+      lastSuccessfulSql: _lastSuccessfulSql,
+      lastSavedSql: _lastSavedSql,
+      result: _result,
+      history: List<_HistoryEntry>.of(_history),
+      messages: List<String>.of(_messages),
+    );
     _sqlController.removeListener(_refreshEditorChrome);
     _editorFocusNode.removeListener(_refreshEditorChrome);
     _editorScrollController.dispose();
@@ -567,6 +612,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           child: Column(
             children: [
               _QueryTabs(selectedIndex: _selectedTab, onChanged: (index) => setState(() => _selectedTab = index)),
+              _buildToolbar(theme, colors),
               Expanded(
                 child: IndexedStack(
                   index: _selectedTab,
@@ -589,7 +635,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   Widget _buildEditor(ThemeData theme, ColorScheme colors) {
     return Column(
       children: [
-        _buildToolbar(theme, colors),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -684,9 +729,16 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         children: [
           Expanded(child: _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: QeStrings.formatSql, onTap: _formatSql)),
           const SizedBox(width: 6),
-          Expanded(child: _ToolbarButton(icon: Icons.save_outlined, label: QeStrings.saveQuery, onTap: () => _addMessage(QeStrings.localSavePending))),
-          const SizedBox(width: 6),
           Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: _showLoadQueryDialog,)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _ToolbarButton(
+              icon: Icons.play_arrow_rounded,
+              label: QeStrings.runQuery,
+              onTap: _executing ? null : _execute,
+              busy: _executing,
+            ),
+          ),
         ],
       ),
     );
@@ -761,16 +813,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           ),
           child: Row(
             children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _executing ? null : _execute,
-                  icon: _executing
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: const Text(QeStrings.executeQuery),
-                ),
-              ),
-              const SizedBox(width: 8),
+              const Spacer(),
               Tooltip(
                 message: _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
                 child: IconButton.filledTonal(
@@ -829,14 +872,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _executing ? null : _execute,
-                icon: _executing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow_rounded),
-                label: const Text(QeStrings.executeQuery),
-              ),
-            ),
           ],
         ),
       ),
@@ -844,7 +879,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildResults(ThemeData theme, ColorScheme colors) {
-    if (_executing) return const Center(child: CircularProgressIndicator());
     if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
     final result = _result;
     if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
@@ -1178,7 +1212,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         content: Text(QeStrings.confirmExecutionMessage(firstWord)),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text(QeStrings.cancel)),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text(QeStrings.executeQuery)),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text(QeStrings.runQuery)),
         ],
       ),
     );
@@ -1731,10 +1765,16 @@ class _QueryTabs extends StatelessWidget {
 }
 
 class _ToolbarButton extends StatelessWidget {
-  const _ToolbarButton({required this.icon, required this.label, required this.onTap});
+  const _ToolbarButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.busy = false,
+  });
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -1746,7 +1786,9 @@ class _ToolbarButton extends StatelessWidget {
         textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.2),
       ),
       onPressed: onTap,
-      icon: Icon(icon, size: 16),
+      icon: busy
+          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(icon, size: 16),
       label: FittedBox(child: Text(label)),
     );
   }
@@ -2595,4 +2637,38 @@ class _HistoryEntry {
   final String sql;
   final DateTime dateTime;
   final String message;
+}
+
+class _QueryEditorSessionSnapshot {
+  const _QueryEditorSessionSnapshot({
+    required this.sql,
+    required this.selectedTab,
+    required this.limit,
+    required this.timeoutSeconds,
+    required this.resultsPage,
+    required this.rowsPerPage,
+    required this.safeMode,
+    required this.lastDuration,
+    required this.errorMessage,
+    required this.lastSuccessfulSql,
+    required this.lastSavedSql,
+    required this.result,
+    required this.history,
+    required this.messages,
+  });
+
+  final String sql;
+  final int selectedTab;
+  final int limit;
+  final int timeoutSeconds;
+  final int resultsPage;
+  final int rowsPerPage;
+  final bool safeMode;
+  final Duration? lastDuration;
+  final String? errorMessage;
+  final String? lastSuccessfulSql;
+  final String? lastSavedSql;
+  final QueryExecuteResult? result;
+  final List<_HistoryEntry> history;
+  final List<String> messages;
 }
