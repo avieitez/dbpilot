@@ -80,25 +80,22 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     _editorFocusNode.addListener(_refreshEditorChrome);
     _editorScrollController = ScrollController();
     final snapshot = _sessionSnapshots[_sessionKey];
+    final hasInitialSql = widget.initialSql?.trim().isNotEmpty == true;
     _sqlController = _SqlTextEditingController(
       provider: widget.connection.provider,
-      text: widget.initialSql == null && snapshot?.sql.trim().isNotEmpty == true
+      text: !hasInitialSql && snapshot?.sql.trim().isNotEmpty == true
           ? snapshot!.sql
           : _initialSql(),
     );
-    _sqlController.addListener(_refreshEditorChrome);
     if (snapshot != null) {
-      _selectedTab = snapshot.selectedTab;
+      _selectedTab = hasInitialSql ? 0 : snapshot.selectedTab;
       _limit = snapshot.limit;
       _timeoutSeconds = snapshot.timeoutSeconds;
       _resultsPage = snapshot.resultsPage;
       _rowsPerPage = snapshot.rowsPerPage;
       _safeMode = snapshot.safeMode;
-      _lastDuration = snapshot.lastDuration;
-      _errorMessage = snapshot.errorMessage;
       _lastSuccessfulSql = snapshot.lastSuccessfulSql;
       _lastSavedSql = snapshot.lastSavedSql;
-      _result = snapshot.result;
       _history
         ..clear()
         ..addAll(snapshot.history);
@@ -116,29 +113,69 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final sql = widget.initialSql?.trim();
     if (sql != null && sql.isNotEmpty) return sql;
 
-    final provider = widget.connection.provider.apiValue;
     final objectName = widget.objectName?.trim();
     final schemaName = widget.schemaName?.trim();
+    final objectType = widget.objectType?.trim();
 
     if (objectName == null || objectName.isEmpty) return '';
 
-    final qualifiedName = (schemaName != null && schemaName.isNotEmpty)
-        ? '$schemaName.$objectName'
-        : objectName;
+    return _defaultObjectQuery(
+      provider: widget.connection.provider,
+      objectName: objectName,
+      objectType: objectType,
+      schemaName: schemaName,
+    );
+  }
 
-    if (provider == 'postgresql') {
-      return 'SELECT *\nFROM $qualifiedName;';
+  String _defaultObjectQuery({
+    required DatabaseProvider provider,
+    required String objectName,
+    required String? objectType,
+    required String? schemaName,
+  }) {
+    final type = (objectType ?? '').toLowerCase().replaceAll(' ', '_');
+
+    switch (provider) {
+      case DatabaseProvider.sqlServer:
+        final qualified = _sqlServerQualifiedName(objectName, schemaName);
+        if (type == 'procedure' || type == 'stored_procedure') return 'EXEC $qualified;';
+        if (type == 'function') return 'SELECT *\nFROM $qualified();';
+        if (type == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        return 'SELECT *\nFROM $qualified;';
+      case DatabaseProvider.postgresql:
+        final qualified = _quotedQualifiedName(objectName, schemaName ?? 'public', '"');
+        if (type == 'function') return 'SELECT *\nFROM $qualified();';
+        if (type == 'procedure' || type == 'stored_procedure') return 'CALL $qualified();';
+        if (type == 'extension') return '-- Extension $objectName. No preview query available.';
+        return 'SELECT *\nFROM $qualified;';
+      case DatabaseProvider.oracle:
+        final qualified = _oracleQualifiedName(objectName, schemaName);
+        if (type == 'procedure' || type == 'stored_procedure') return 'BEGIN\n  $qualified;\nEND;';
+        if (type == 'function') return 'SELECT $qualified() AS VALUE\nFROM dual;';
+        if (type == 'package') return '-- Package $qualified. Open definition to inspect package source.';
+        if (type == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (type == 'sequence') return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
+        return 'SELECT *\nFROM $qualified;';
     }
+  }
 
-    if (provider == 'sqlserver' || provider == 'sql_server' || provider == 'mssql') {
-      return 'SELECT *\nFROM $qualifiedName;';
-    }
+  String _sqlServerQualifiedName(String objectName, String? schemaName) {
+    String clean(String value) => value.replaceAll('[', '').replaceAll(']', '').trim();
+    final schema = clean((schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
+    return '[${clean(schema)}].[${clean(objectName)}]';
+  }
 
-    if (provider == 'oracle') {
-      return 'SELECT *\nFROM $qualifiedName;';
-    }
+  String _quotedQualifiedName(String objectName, String schemaName, String quote) {
+    String clean(String value) => value.replaceAll(quote, quote + quote).trim();
+    final schema = clean(schemaName);
+    final name = clean(objectName);
+    return schema.isEmpty ? '$quote$name$quote' : '$quote$schema$quote.$quote$name$quote';
+  }
 
-    return 'SELECT *\nFROM $qualifiedName;';
+  String _oracleQualifiedName(String objectName, String? schemaName) {
+    final schema = schemaName?.trim().toUpperCase() ?? '';
+    final name = objectName.trim().toUpperCase();
+    return _quotedQualifiedName(name, schema, '"');
   }
 
   Future<void> _execute() async {
@@ -562,21 +599,17 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   void dispose() {
     _sessionSnapshots[_sessionKey] = _QueryEditorSessionSnapshot(
       sql: _sqlController.text,
-      selectedTab: _selectedTab,
+      selectedTab: _selectedTab == 1 ? 0 : _selectedTab,
       limit: _limit,
       timeoutSeconds: _timeoutSeconds,
-      resultsPage: _resultsPage,
+      resultsPage: 0,
       rowsPerPage: _rowsPerPage,
       safeMode: _safeMode,
-      lastDuration: _lastDuration,
-      errorMessage: _errorMessage,
       lastSuccessfulSql: _lastSuccessfulSql,
       lastSavedSql: _lastSavedSql,
-      result: _result,
       history: List<_HistoryEntry>.of(_history),
       messages: List<String>.of(_messages),
     );
-    _sqlController.removeListener(_refreshEditorChrome);
     _editorFocusNode.removeListener(_refreshEditorChrome);
     _editorScrollController.dispose();
     _editorFocusNode.dispose();
@@ -705,11 +738,16 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                         ],
                       ),
                     ),
-                    _EditorStatusBar(
-                      position: _cursorPositionLabel(),
-                      lineCount: _lineCount,
-                      characterCount: _sqlController.text.length,
-                      safeMode: _safeMode,
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _sqlController,
+                      builder: (context, value, _) {
+                        return _EditorStatusBar(
+                          position: _cursorPositionLabel(value),
+                          lineCount: _lineCount(value.text),
+                          characterCount: value.text.length,
+                          safeMode: _safeMode,
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -783,11 +821,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     );
   }
 
-  int get _lineCount => ('\n'.allMatches(_sqlController.text).length + 1).clamp(1, 9999).toInt();
+  int _lineCount(String text) => ('\n'.allMatches(text).length + 1).clamp(1, 9999).toInt();
 
-  String _cursorPositionLabel() {
-    final text = _sqlController.text;
-    final selectionStart = _sqlController.selection.start;
+  String _cursorPositionLabel(TextEditingValue value) {
+    final text = value.text;
+    final selectionStart = value.selection.start;
     final offset = selectionStart < 0 ? text.length : selectionStart.clamp(0, text.length).toInt();
     final beforeCursor = text.substring(0, offset);
     final line = '\n'.allMatches(beforeCursor).length + 1;
@@ -2199,6 +2237,7 @@ class _SqlTextEditingController extends TextEditingController {
     'DESC',
     'ASC',
   ];
+  static final Set<String> _keywordNames = _keywords.map((value) => value.toLowerCase()).toSet();
 
   final DatabaseProvider provider;
   final Set<String> _functionNames;
@@ -2242,7 +2281,7 @@ class _SqlTextEditingController extends TextEditingController {
   }
 
   bool _isFunctionUsage(String normalizedToken, int tokenEnd) {
-    if (!_keywords.map((value) => value.toLowerCase()).contains(normalizedToken)) {
+    if (!_keywordNames.contains(normalizedToken)) {
       return true;
     }
 
@@ -2648,11 +2687,8 @@ class _QueryEditorSessionSnapshot {
     required this.resultsPage,
     required this.rowsPerPage,
     required this.safeMode,
-    required this.lastDuration,
-    required this.errorMessage,
     required this.lastSuccessfulSql,
     required this.lastSavedSql,
-    required this.result,
     required this.history,
     required this.messages,
   });
@@ -2664,11 +2700,8 @@ class _QueryEditorSessionSnapshot {
   final int resultsPage;
   final int rowsPerPage;
   final bool safeMode;
-  final Duration? lastDuration;
-  final String? errorMessage;
   final String? lastSuccessfulSql;
   final String? lastSavedSql;
-  final QueryExecuteResult? result;
   final List<_HistoryEntry> history;
   final List<String> messages;
 }

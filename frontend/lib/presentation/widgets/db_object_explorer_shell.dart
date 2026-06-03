@@ -278,23 +278,53 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   String _defaultQuery(DbExplorerObject object) {
-    final objectType = (object.objectType ?? '').toLowerCase();
+    final objectType = (object.objectType ?? _objectTypeFromCategory(object.category))
+        .toLowerCase()
+        .replaceAll(' ', '_');
     final schema = object.schemaName?.trim();
-    final plainQualified = schema == null || schema.isEmpty ? object.name : '$schema.${object.name}';
-    final sqlServerQualified = schema == null || schema.isEmpty ? '[${object.name}]' : '[$schema].[${object.name}]';
+    final provider = widget.connection.provider;
 
-    if (objectType == 'procedure') {
-      if (object.previewQuery != null && object.previewQuery!.trim().isNotEmpty) return object.previewQuery!;
-      return widget.connection.provider.apiValue == 'postgresql'
-          ? 'CALL $plainQualified();'
-          : 'EXEC $plainQualified;';
+    switch (provider) {
+      case DatabaseProvider.sqlServer:
+        final qualified = _sqlServerQualifiedName(object.name, schema);
+        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'EXEC $qualified;';
+        if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
+        if (objectType == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        return 'SELECT *\nFROM $qualified;';
+      case DatabaseProvider.postgresql:
+        final qualified = _quotedQualifiedName(object.name, schema ?? 'public', '"');
+        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'CALL $qualified();';
+        if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
+        if (objectType == 'extension') return '-- Extension ${object.name}. No preview query available.';
+        return 'SELECT *\nFROM $qualified;';
+      case DatabaseProvider.oracle:
+        final qualified = _oracleQualifiedName(object.name, schema);
+        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'BEGIN\n  $qualified;\nEND;';
+        if (objectType == 'function') return 'SELECT $qualified() AS VALUE\nFROM dual;';
+        if (objectType == 'package') return '-- Package $qualified. Open definition to inspect package source.';
+        if (objectType == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (objectType == 'sequence') return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
+        return 'SELECT *\nFROM $qualified;';
     }
-    if (objectType == 'function') return 'SELECT *\nFROM $plainQualified();';
+  }
 
-    if (widget.connection.provider.apiValue == 'sqlserver') {
-      return 'SELECT *\nFROM $sqlServerQualified;';
-    }
-    return 'SELECT *\nFROM $plainQualified;';
+  String _sqlServerQualifiedName(String objectName, String? schemaName) {
+    String clean(String value) => value.replaceAll('[', '').replaceAll(']', '').trim();
+    final schema = clean((schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
+    return '[${clean(schema)}].[${clean(objectName)}]';
+  }
+
+  String _quotedQualifiedName(String objectName, String schemaName, String quote) {
+    String clean(String value) => value.replaceAll(quote, quote + quote).trim();
+    final schema = clean(schemaName);
+    final name = clean(objectName);
+    return schema.isEmpty ? '$quote$name$quote' : '$quote$schema$quote.$quote$name$quote';
+  }
+
+  String _oracleQualifiedName(String objectName, String? schemaName) {
+    final schema = schemaName?.trim().toUpperCase() ?? '';
+    final name = objectName.trim().toUpperCase();
+    return _quotedQualifiedName(name, schema, '"');
   }
 
   Future<void> _loadStructure(DbExplorerObject object) async {
