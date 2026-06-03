@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
 import '../../../core/strings/strings.dart';
@@ -564,6 +565,225 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   );
 }
 
+  Future<void> _showSqlBuilderSheet() async {
+    final promptController = TextEditingController();
+    final speech = stt.SpeechToText();
+    var promptText = '';
+    var listening = false;
+    var speechAvailable = false;
+    String? error;
+    _LocalSqlBuildResult? generated;
+
+    final sqlToInsert = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final colors = theme.colorScheme;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> toggleDictation() async {
+              if (listening) {
+                await speech.stop();
+                setSheetState(() => listening = false);
+                return;
+              }
+
+              speechAvailable = await speech.initialize(
+                onStatus: (status) {
+                  if (!context.mounted) return;
+                  setSheetState(() => listening = status == 'listening');
+                },
+                onError: (speechError) {
+                  if (!context.mounted) return;
+                  setSheetState(() {
+                    listening = false;
+                    error = speechError.errorMsg;
+                  });
+                },
+              );
+
+              if (!speechAvailable) {
+                setSheetState(() {
+                  error = 'Speech recognition is not available on this device.';
+                });
+                return;
+              }
+
+              setSheetState(() {
+                error = null;
+                listening = true;
+              });
+
+              await speech.listen(
+                listenMode: stt.ListenMode.dictation,
+                onResult: (result) {
+                  promptText = result.recognizedWords;
+                  promptController.value = TextEditingValue(
+                    text: promptText,
+                    selection: TextSelection.collapsed(offset: promptText.length),
+                  );
+                },
+              );
+            }
+
+            void buildSql() {
+              final prompt = promptText.trim();
+              if (prompt.isEmpty) return;
+
+              final result = _LocalSqlGenerator.generate(
+                prompt: prompt,
+                provider: widget.connection.provider,
+                fallbackTable: widget.objectName,
+                fallbackSchema: widget.schemaName,
+              );
+
+              setSheetState(() {
+                generated = result.sql == null ? null : result;
+                error = result.sql == null ? result.message : null;
+              });
+            }
+
+            void insertSql() {
+              final sql = generated?.sql?.trim();
+              if (sql == null || sql.isEmpty) return;
+
+              Navigator.of(sheetContext).pop(sql);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.construction_rounded, color: colors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Build SQL',
+                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Spanish and English only. Simple SELECT, COUNT, WHERE, ORDER BY and LIMIT requests are supported.',
+                      style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: promptController,
+                      onChanged: (value) => promptText = value,
+                      minLines: 3,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        hintText: 'Example: quiero todos los registros de la tabla prueba',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: toggleDictation,
+                        icon: Icon(listening ? Icons.mic_rounded : Icons.mic_none_rounded),
+                        label: Text(listening ? 'Listening...' : 'Dictate'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: buildSql,
+                        icon: const Icon(Icons.build_rounded),
+                        label: const Text('Build SQL'),
+                      ),
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(error!, style: TextStyle(color: colors.error)),
+                    ],
+                    if (generated != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF07101B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: colors.outlineVariant.withOpacity(0.5)),
+                        ),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            generated!.sql!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontFamily: 'monospace',
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (generated!.message.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          generated!.message,
+                          style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: insertSql,
+                              child: const Text('Insert SQL'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    await speech.stop();
+    Future<void>.delayed(const Duration(milliseconds: 250), promptController.dispose);
+
+    if (!mounted || sqlToInsert == null || sqlToInsert.trim().isEmpty) return;
+
+    _sqlController.text = sqlToInsert.trim();
+    setState(() => _selectedTab = 0);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _editorFocusNode.requestFocus();
+      _addMessage('SQL generated locally. Review it before running.');
+    });
+  }
+
   String _formatDateTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
@@ -782,6 +1002,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       child: Row(
         children: [
           Expanded(child: _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: QeStrings.formatSql, onTap: _formatSql)),
+          const SizedBox(width: 6),
+          Expanded(child: _ToolbarButton(icon: Icons.construction_rounded, label: QeStrings.buildSql, onTap: _showSqlBuilderSheet)),
           const SizedBox(width: 6),
           Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: _showLoadQueryDialog,)),
           const SizedBox(width: 6),
@@ -2748,6 +2970,294 @@ class _HistoryEntry {
   final String sql;
   final DateTime dateTime;
   final String message;
+}
+
+class _LocalSqlBuildResult {
+  const _LocalSqlBuildResult({required this.sql, required this.message});
+
+  final String? sql;
+  final String message;
+}
+
+class _LocalSqlGenerator {
+  const _LocalSqlGenerator._();
+
+  static _LocalSqlBuildResult generate({
+    required String prompt,
+    required DatabaseProvider provider,
+    String? fallbackTable,
+    String? fallbackSchema,
+  }) {
+    final normalized = _normalize(prompt);
+    final language = _detectLanguage(normalized);
+
+    if (language == null) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'Only Spanish and English requests are supported.',
+      );
+    }
+
+    final table = _extractTable(normalized) ?? fallbackTable;
+    if (!_isSafeIdentifierPath(table)) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'I could not identify a safe table name. Try: "select all from table customers".',
+      );
+    }
+
+    final columns = _extractColumns(normalized, table!);
+    final count = _hasAny(normalized, const ['count', 'contar', 'cuenta', 'conteo', 'cantidad']);
+    final where = _extractWhere(normalized);
+    final orderBy = _extractOrderBy(normalized);
+    final limit = _extractLimit(normalized);
+    final qualifiedTable = _qualifiedTable(provider, table, fallbackSchema);
+    final selectList = count ? 'COUNT(*)' : (columns.isEmpty ? '*' : columns.join(', '));
+    final buffer = StringBuffer();
+
+    if (provider == DatabaseProvider.sqlServer && limit != null) {
+      buffer.writeln('SELECT TOP $limit $selectList');
+    } else {
+      buffer.writeln('SELECT $selectList');
+    }
+
+    buffer.writeln('FROM $qualifiedTable');
+
+    if (where != null) {
+      buffer.writeln('WHERE ${where.toSql()}');
+    }
+
+    if (orderBy != null) {
+      buffer.writeln('ORDER BY ${orderBy.column} ${orderBy.descending ? 'DESC' : 'ASC'}');
+    }
+
+    if (provider == DatabaseProvider.postgresql && limit != null) {
+      buffer.writeln('LIMIT $limit');
+    }
+
+    if (provider == DatabaseProvider.oracle && limit != null) {
+      buffer.writeln('FETCH FIRST $limit ROWS ONLY');
+    }
+
+    return _LocalSqlBuildResult(
+      sql: '${buffer.toString().trim()};',
+      message: 'Generated with the local rule-based SQL builder.',
+    );
+  }
+
+  static String _normalize(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[¿?¡!,;]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static String? _detectLanguage(String value) {
+    final spanishHits = _countHits(value, const [
+      'quiero',
+      'necesito',
+      'selecciona',
+      'seleccionar',
+      'registros',
+      'tabla',
+      'donde',
+      'ordenar',
+      'limite',
+      'mayor',
+      'menor',
+      'igual',
+      'contar',
+    ]);
+    final englishHits = _countHits(value, const [
+      'select',
+      'show',
+      'get',
+      'need',
+      'want',
+      'rows',
+      'records',
+      'table',
+      'from',
+      'where',
+      'order',
+      'limit',
+      'count',
+    ]);
+
+    if (spanishHits == 0 && englishHits == 0) return null;
+    return spanishHits >= englishHits ? 'es' : 'en';
+  }
+
+  static int _countHits(String value, List<String> words) {
+    return words.where((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value)).length;
+  }
+
+  static bool _hasAny(String value, List<String> words) {
+    return words.any((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value));
+  }
+
+  static String? _extractTable(String value) {
+    final patterns = [
+      RegExp(r'\b(?:tabla|table)\s+([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\b(?:de|from)\s+(?:la\s+|el\s+)?(?:tabla\s+|table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(value);
+      final table = match?.group(1);
+      if (_isSafeIdentifierPath(table) && !_reservedTableWords.contains(table)) {
+        return table;
+      }
+    }
+
+    return null;
+  }
+
+  static List<String> _extractColumns(String value, String table) {
+    if (_hasAny(value, const ['todo', 'todos', 'todas', 'all', 'registros', 'records', 'rows'])) {
+      return const [];
+    }
+
+    final match = RegExp(
+      r'\b(?:columnas|campos|fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:de|from|donde|where|orden|order|limite|limit)\b|$)',
+    ).firstMatch(value);
+
+    final raw = match?.group(1);
+    if (raw == null) return const [];
+
+    final columns = raw
+        .split(RegExp(r'\s*,\s*|\s+y\s+|\s+and\s+'))
+        .map((item) => item.trim())
+        .where(_isSafeIdentifier)
+        .where((item) => item != table)
+        .toList();
+
+    return columns;
+  }
+
+  static _LocalSqlCondition? _extractWhere(String value) {
+    final whereMatch = RegExp(r'\b(?:donde|where)\s+(.+?)(?:\s+(?:ordenar|orden|order|limite|limit)\b|$)').firstMatch(value);
+    final segment = whereMatch?.group(1);
+    if (segment == null) return null;
+
+    final conditionPatterns = <({RegExp regex, String comparison})>[
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:mayor\s+que|greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:menor\s+que|less\s+than)\s+(.+)$'), comparison: '<'),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:igual\s+a|equals|equal\s+to|is)\s+(.+)$'), comparison: '='),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'), comparison: ''),
+    ];
+
+    for (final item in conditionPatterns) {
+      final match = item.regex.firstMatch(segment);
+      if (match == null) continue;
+
+      final column = match.group(1)?.trim();
+      final comparison = item.comparison.isEmpty ? match.group(2)?.trim() : item.comparison;
+      final conditionValue = match.group(item.comparison.isEmpty ? 3 : 2)?.trim();
+
+      if (!_isSafeIdentifier(column) || comparison == null || conditionValue == null || conditionValue.isEmpty) {
+        continue;
+      }
+
+      return _LocalSqlCondition(column: column!, comparison: comparison, value: conditionValue);
+    }
+
+    return null;
+  }
+
+  static _LocalSqlOrder? _extractOrderBy(String value) {
+    final match = RegExp(r'\b(?:ordenar\s+por|orden\s+por|order\s+by)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascendente|descendente))?').firstMatch(value);
+    final column = match?.group(1);
+    if (!_isSafeIdentifier(column)) return null;
+
+    final direction = match?.group(2) ?? '';
+    return _LocalSqlOrder(
+      column: column!,
+      descending: direction == 'desc' || direction == 'descendente',
+    );
+  }
+
+  static int? _extractLimit(String value) {
+    final match = RegExp(r'\b(?:limite|limit|top|primeros|first)\s+(\d{1,4})\b').firstMatch(value);
+    final parsed = int.tryParse(match?.group(1) ?? '');
+    if (parsed == null) return null;
+    return parsed.clamp(1, 5000).toInt();
+  }
+
+  static String _qualifiedTable(DatabaseProvider provider, String table, String? schema) {
+    final parts = table.split('.');
+    final effectiveSchema = parts.length > 1 ? parts.first : schema;
+    final name = parts.length > 1 ? parts.last : table;
+
+    switch (provider) {
+      case DatabaseProvider.sqlServer:
+        final cleanSchema = _cleanSqlServerIdentifier(effectiveSchema ?? 'dbo');
+        final cleanName = _cleanSqlServerIdentifier(name);
+        return '[$cleanSchema].[$cleanName]';
+      case DatabaseProvider.postgresql:
+        final cleanSchema = _cleanQuotedIdentifier(effectiveSchema ?? 'public');
+        final cleanName = _cleanQuotedIdentifier(name);
+        return '"$cleanSchema"."$cleanName"';
+      case DatabaseProvider.oracle:
+        final cleanSchema = _cleanQuotedIdentifier(effectiveSchema ?? '').toUpperCase();
+        final cleanName = _cleanQuotedIdentifier(name).toUpperCase();
+        return cleanSchema.isEmpty ? '"$cleanName"' : '"$cleanSchema"."$cleanName"';
+    }
+  }
+
+  static bool _isSafeIdentifier(String? value) {
+    return value != null && RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(value);
+  }
+
+  static bool _isSafeIdentifierPath(String? value) {
+    return value != null && RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?$').hasMatch(value);
+  }
+
+  static String _cleanSqlServerIdentifier(String value) {
+    return value.replaceAll('[', '').replaceAll(']', '').trim();
+  }
+
+  static String _cleanQuotedIdentifier(String value) {
+    return value.replaceAll('"', '""').trim();
+  }
+
+  static const Set<String> _reservedTableWords = {
+    'tabla',
+    'table',
+    'registros',
+    'records',
+    'rows',
+  };
+}
+
+class _LocalSqlCondition {
+  const _LocalSqlCondition({
+    required this.column,
+    required this.comparison,
+    required this.value,
+  });
+
+  final String column;
+  final String comparison;
+  final String value;
+
+  String toSql() {
+    final cleanValue = value.trim();
+    final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
+    if (numeric != null) return '$column $comparison ${numeric.toString()}';
+
+    final normalized = cleanValue.replaceAll(RegExp(r'^(es|is)\s+'), '').trim();
+    final escaped = normalized.replaceAll("'", "''");
+    return "$column $comparison '$escaped'";
+  }
+}
+
+class _LocalSqlOrder {
+  const _LocalSqlOrder({required this.column, required this.descending});
+
+  final String column;
+  final bool descending;
 }
 
 class _QueryEditorSessionSnapshot {

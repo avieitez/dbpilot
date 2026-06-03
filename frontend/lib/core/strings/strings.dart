@@ -64,6 +64,7 @@ class QeStrings {
   const QeStrings._();
 
   static const String formatSql = 'FORMAT SQL';
+  static const String buildSql = 'BUILD SQL';
   static const String saveQuery = 'SAVE QUERY';
   static const String loadQuery = 'LOAD QUERY';
   static const String sqlHint = 'Write SQL here...';
