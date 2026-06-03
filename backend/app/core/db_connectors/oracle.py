@@ -1,3 +1,5 @@
+import re
+
 import oracledb
 
 
@@ -289,6 +291,47 @@ def get_oracle_object_parameters(payload, object_name: str, object_type: str, sc
             conn.close()
 
 
+def _oracle_bind_names(sql: str) -> list[str]:
+    clean = re.sub(r"'(?:''|[^'])*'", "''", sql or "")
+    names = re.findall(r"(?<!:):([A-Za-z][A-Za-z0-9_]*)", clean)
+    return list(dict.fromkeys(names))
+
+
+def _is_auto_cursor_bind(name: str) -> bool:
+    return name.upper() in {"RC", "CURSOR", "RESULT", "RESULTSET", "RESULT_SET", "OUT_CURSOR", "P_CURSOR"}
+
+
+def _fetch_cursor_var(cursor_var, clean_limit: int):
+    result_cursor = cursor_var.getvalue()
+    if result_cursor is None:
+        return ["message"], [["Procedure executed successfully."]]
+    return _fetch_oracle_cursor(result_cursor, clean_limit)
+
+
+def _fetch_oracle_cursor(result_cursor, clean_limit: int):
+    try:
+        if result_cursor.description is None:
+            return ["message"], [["Procedure executed successfully."]]
+        columns = [desc[0] for desc in result_cursor.description]
+        rows = [[_serialize_value(value) for value in row] for row in result_cursor.fetchmany(clean_limit)]
+        return columns, rows
+    finally:
+        result_cursor.close()
+
+
+def _fetch_implicit_results(cursor, clean_limit: int):
+    if not hasattr(cursor, "getimplicitresults"):
+        return None
+    implicit_results = cursor.getimplicitresults()
+    if not implicit_results:
+        return None
+    for result_cursor in implicit_results:
+        if result_cursor.description is not None:
+            return _fetch_oracle_cursor(result_cursor, clean_limit)
+        result_cursor.close()
+    return ["message"], [["Procedure executed successfully."]]
+
+
 def execute_oracle_query(payload, sql: str, limit: int, timeout_seconds: int = 30):
     conn = None
     cursor = None
@@ -296,8 +339,23 @@ def execute_oracle_query(payload, sql: str, limit: int, timeout_seconds: int = 3
     try:
         conn = _connect(payload, timeout_seconds)
         cursor = conn.cursor()
+        bind_names = _oracle_bind_names(sql)
+        auto_cursor_binds = {
+            name: cursor.var(oracledb.CURSOR)
+            for name in bind_names
+            if _is_auto_cursor_bind(name)
+        }
+        if auto_cursor_binds and len(auto_cursor_binds) == len(bind_names):
+            cursor.execute(sql, auto_cursor_binds)
+            conn.commit()
+            return _fetch_cursor_var(next(iter(auto_cursor_binds.values())), clean_limit)
+
         cursor.execute(sql)
         if cursor.description is None:
+            implicit_result = _fetch_implicit_results(cursor, clean_limit)
+            if implicit_result is not None:
+                conn.commit()
+                return implicit_result
             affected = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
             conn.commit()
             return ["message"], [[f"Query executed successfully. Rows affected: {affected}"]]

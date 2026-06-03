@@ -211,10 +211,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     String sqlToExecute = sql.trim();
 
     if (widget.connection.provider == DatabaseProvider.oracle) {
-      sqlToExecute = sqlToExecute.replaceFirst(
-        RegExp(r';+\s*$'),
-        '',
-      );
+      sqlToExecute = _prepareOracleSql(sqlToExecute);
     }
     try {
       final result = await _apiService.executeQuery(
@@ -261,6 +258,25 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       });
       _addMessage('ERROR: $message');
     }
+  }
+
+  String _prepareOracleSql(String sql) {
+    final clean = sql.trim();
+    final lower = clean.toLowerCase();
+    final refCursorBindPattern = RegExp(r':RC\b', caseSensitive: false);
+    if (lower.startsWith('begin') || lower.startsWith('declare')) {
+      final block = clean.endsWith(';') ? clean : '$clean;';
+      if (lower.startsWith('begin') && refCursorBindPattern.hasMatch(block)) {
+        final localCursorBlock = block.replaceAll(refCursorBindPattern, 'RC');
+        final returnedCursorBlock = localCursorBlock.replaceFirst(
+          RegExp(r'\bEND\s*;\s*$', caseSensitive: false),
+          '  DBMS_SQL.RETURN_RESULT(RC);\nEND;',
+        );
+        return 'DECLARE\n  RC SYS_REFCURSOR;\n$returnedCursorBlock';
+      }
+      return block;
+    }
+    return clean.replaceFirst(RegExp(r';+\s*$'), '');
   }
 
   bool get _hasPendingSuccessfulQuerySave {
