@@ -564,6 +564,171 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   );
 }
 
+  Future<void> _showAiQuerySheet() async {
+    final promptController = TextEditingController();
+    var loading = false;
+    String? error;
+    QueryGenerateResult? generated;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final colors = theme.colorScheme;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> generate() async {
+              final prompt = promptController.text.trim();
+              if (prompt.isEmpty || loading) return;
+
+              setSheetState(() {
+                loading = true;
+                error = null;
+                generated = null;
+              });
+
+              try {
+                final result = await _apiService.generateQuery(
+                  widget.connection,
+                  prompt: prompt,
+                  currentSql: _sqlController.text,
+                  objectName: widget.objectName,
+                  objectType: widget.objectType,
+                  schemaName: widget.schemaName,
+                );
+
+                setSheetState(() {
+                  generated = result;
+                  loading = false;
+                });
+              } catch (err) {
+                setSheetState(() {
+                  error = err.toString().replaceFirst('Exception: ', '');
+                  loading = false;
+                });
+              }
+            }
+
+            void insertGeneratedSql() {
+              final sql = generated?.sql.trim();
+              if (sql == null || sql.isEmpty) return;
+
+              _sqlController.text = sql;
+              setState(() => _selectedTab = 0);
+              Navigator.of(sheetContext).pop();
+              _editorFocusNode.requestFocus();
+              _addMessage('AI query inserted. Review it before running.');
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, color: colors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'AI Query',
+                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: promptController,
+                      minLines: 3,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        hintText: 'Describe the query you need...',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: loading ? null : generate,
+                        icon: loading
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.auto_awesome_rounded),
+                        label: const Text('Generate SQL'),
+                      ),
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(error!, style: TextStyle(color: colors.error)),
+                    ],
+                    if (generated != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF07101B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: colors.outlineVariant.withOpacity(0.5)),
+                        ),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            generated!.sql,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontFamily: 'monospace',
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (generated!.notes.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          generated!.notes,
+                          style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: insertGeneratedSql,
+                              child: const Text('Insert SQL'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    promptController.dispose();
+  }
+
   String _formatDateTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
@@ -782,6 +947,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       child: Row(
         children: [
           Expanded(child: _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: QeStrings.formatSql, onTap: _formatSql)),
+          const SizedBox(width: 6),
+          Expanded(child: _ToolbarButton(icon: Icons.auto_awesome_rounded, label: QeStrings.aiQuery, onTap: _showAiQuerySheet)),
           const SizedBox(width: 6),
           Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: _showLoadQueryDialog,)),
           const SizedBox(width: 6),
