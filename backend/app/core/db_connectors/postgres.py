@@ -229,7 +229,7 @@ def get_postgres_object_definition(payload, object_name: str, object_type: str, 
 
 
 def get_postgres_object_parameters(payload, object_name: str, object_type: str, schema_name: str | None = None):
-    if (object_type or "").lower() != "function":
+    if (object_type or "").lower() not in {"function", "procedure", "stored_procedure"}:
         return []
     conn = None
     cur = None
@@ -239,10 +239,18 @@ def get_postgres_object_parameters(payload, object_name: str, object_type: str, 
         cur.execute("""
             SELECT parameter_name, data_type, parameter_mode
             FROM information_schema.parameters
-            WHERE specific_schema = %s AND specific_name LIKE %s AND parameter_name IS NOT NULL
+            WHERE specific_schema = %s AND specific_name LIKE %s
             ORDER BY ordinal_position
         """, (_schema(schema_name), f"{object_name}%"))
-        return [{"name": row[0], "dataType": row[1], "direction": row[2], "hasDefault": None} for row in cur.fetchall()]
+        return [
+            {
+                "name": row[0] or "RETURN",
+                "dataType": row[1] or "",
+                "direction": row[2] or "OUT",
+                "hasDefault": None,
+            }
+            for row in cur.fetchall()
+        ]
     finally:
         if cur is not None:
             cur.close()

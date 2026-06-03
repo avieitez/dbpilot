@@ -29,6 +29,8 @@ class DbExplorerObject {
     this.objectType,
     this.schemaName,
     this.defaultQuery,
+    this.parameters = const [],
+    this.parametersLoaded = false,
     this.isDemo = false,
   });
 
@@ -40,6 +42,8 @@ class DbExplorerObject {
   final String? objectType;
   final String? schemaName;
   final String? defaultQuery;
+  final List<DbObjectParameterInfo> parameters;
+  final bool parametersLoaded;
   final bool isDemo;
 
   String get qualifiedName =>
@@ -58,6 +62,8 @@ class DbExplorerObject {
     String? objectType,
     String? schemaName,
     String? defaultQuery,
+    List<DbObjectParameterInfo>? parameters,
+    bool? parametersLoaded,
     bool? isDemo,
   }) {
     return DbExplorerObject(
@@ -69,6 +75,8 @@ class DbExplorerObject {
       objectType: objectType ?? this.objectType,
       schemaName: schemaName ?? this.schemaName,
       defaultQuery: defaultQuery ?? this.defaultQuery,
+      parameters: parameters ?? this.parameters,
+      parametersLoaded: parametersLoaded ?? this.parametersLoaded,
       isDemo: isDemo ?? this.isDemo,
     );
   }
@@ -121,6 +129,7 @@ class DbObjectExplorerShell extends StatefulWidget {
 
 class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   late final ConnectionApiService _apiService;
 
   List<DbCategoryGroup> _categories = [];
@@ -150,6 +159,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     super.initState();
     _apiService = ConnectionApiService();
     _searchController.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) FocusScope.of(context).unfocus();
+    });
     _initialize();
   }
 
@@ -328,6 +340,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   Future<void> _loadStructure(DbExplorerObject object) async {
+    await _loadParameters(object);
+    object = _findObject(object) ?? object;
+
     if (!widget.loadFromBackend) {
       setState(() => _selectedObject = object);
       return;
@@ -385,6 +400,16 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       );
     }).toList();
     _categories = newCategories;
+  }
+
+  DbExplorerObject? _findObject(DbExplorerObject object) {
+    final key = _objectKey(object);
+    for (final group in _categories) {
+      for (final item in group.items) {
+        if (_objectKey(item) == key) return item;
+      }
+    }
+    return null;
   }
 
   String _objectTypeFromCategory(DbObjectCategory category) {
@@ -577,6 +602,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchController.dispose();
     _apiService.dispose();
     super.dispose();
@@ -693,6 +719,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
           const SizedBox(height: 12),
           TextField(
             controller: _searchController,
+            focusNode: _searchFocusNode,
+            autofocus: false,
             decoration: InputDecoration(
               hintText: AppStrings.search,
               prefixIcon: const Icon(Icons.search_rounded),
@@ -804,6 +832,19 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _objectSubtitle(item),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                                if (item.parameters.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  _ParameterChips(parameters: item.parameters),
+                                ],
                               ],
                             ),
                           ),
@@ -870,6 +911,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
+          if (item.parameters.isNotEmpty) ...[
+            _ParameterChips(parameters: item.parameters),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Expanded(
@@ -949,6 +994,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (selected.parameters.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _ParameterChips(parameters: selected.parameters),
+          ],
           const SizedBox(height: 16),
           if (_loadingStructure) const LinearProgressIndicator(),
           if (_loadingStructure) const SizedBox(height: 12),
@@ -1022,6 +1071,47 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   bool _isForeignKey(DbColumnInfo col) {
     return (col.flag ?? '').trim().toUpperCase() == 'FK';
+  }
+
+  bool _supportsParameters(DbExplorerObject item) {
+    final type = (item.objectType ?? _objectTypeFromCategory(item.category)).toLowerCase();
+    return type == 'procedure' || type == 'stored_procedure' || type == 'function';
+  }
+
+  Future<void> _loadParameters(DbExplorerObject object) async {
+    if (!widget.loadFromBackend || !_supportsParameters(object) || object.parametersLoaded) {
+      return;
+    }
+
+    try {
+      final result = await _apiService.getObjectParameters(
+        widget.connection,
+        object.name,
+        object.objectType ?? _objectTypeFromCategory(object.category),
+        schemaName: object.schemaName,
+      );
+      final updated = object.copyWith(
+        parameters: result.parameters,
+        parametersLoaded: true,
+      );
+
+      _replaceObject(updated);
+      if (!mounted) return;
+      setState(() {
+        if (_selectedObject != null && _objectKey(_selectedObject!) == _objectKey(object)) {
+          _selectedObject = updated;
+        }
+      });
+    } catch (_) {
+      final updated = object.copyWith(parametersLoaded: true);
+      _replaceObject(updated);
+      if (!mounted) return;
+      setState(() {
+        if (_selectedObject != null && _objectKey(_selectedObject!) == _objectKey(object)) {
+          _selectedObject = updated;
+        }
+      });
+    }
   }
 
   Widget _buildStructureTable(
@@ -1125,6 +1215,64 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         ],
       ),
     );
+  }
+}
+
+class _ParameterChips extends StatelessWidget {
+  const _ParameterChips({required this.parameters});
+
+  final List<DbObjectParameterInfo> parameters;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: parameters.map((parameter) {
+        final direction = _directionLabel(parameter.direction);
+        final color = _directionColor(direction);
+        final name = parameter.name.isEmpty ? 'RETURN' : parameter.name;
+        final defaultLabel = parameter.hasDefault == true ? ' = default' : '';
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.14),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withOpacity(0.55)),
+          ),
+          child: Text(
+            '$direction $name ${parameter.dataType}$defaultLabel',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  String _directionLabel(String? value) {
+    final clean = (value ?? 'IN').trim().toUpperCase().replaceAll('OUTPUT', 'OUT');
+    if (clean == 'IN/OUT' || clean == 'INOUT') return 'IN OUT';
+    if (clean == 'RETURN') return 'OUT';
+    if (clean == 'OUT' || clean == 'IN OUT') return clean;
+    return 'IN';
+  }
+
+  Color _directionColor(String direction) {
+    switch (direction) {
+      case 'OUT':
+        return Colors.orangeAccent;
+      case 'IN OUT':
+        return Colors.purpleAccent;
+      default:
+        return Colors.lightBlueAccent;
+    }
   }
 }
 

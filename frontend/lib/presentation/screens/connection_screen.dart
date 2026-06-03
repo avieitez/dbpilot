@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
@@ -47,7 +46,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _sidFocus = FocusNode();
   final _portFocus = FocusNode();
 
-  BannerAd? _bannerAd;
   DatabaseProvider _selectedProvider = DatabaseProvider.postgresql;
   DatabaseProvider? _originalProvider;
   Map<String, dynamic>? _originalData;
@@ -68,18 +66,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void initState() {
     super.initState();
     _loadInitialData();
-    _loadBanner();
-  }
-
-  void _loadBanner() {
-    _bannerAd = BannerAd(
-      adUnitId: 'ca-app-pub-3940256099942544/6300978111',
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdFailedToLoad: (ad, error) => ad.dispose(),
-      ),
-    )..load();
   }
 
   void _loadInitialData() {
@@ -400,36 +386,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Widget _buildAdSection() {
-    if (_bannerAd != null) {
-      return SizedBox(
-        width: double.infinity,
-        height: 50,
-        child: Center(
-          child: SizedBox(
-            width: _bannerAd!.size.width.toDouble(),
-            height: _bannerAd!.size.height.toDouble(),
-            child: AdWidget(ad: _bannerAd!),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 50,
-      decoration: BoxDecoration(
-        color: const Color(0xFF132238),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Center(
-        child: Text(
-          'Ad banner area',
-          style: TextStyle(color: Colors.white70),
-        ),
-      ),
-    );
-  }
-
   String? _requiredValidator(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'This field is required';
@@ -440,7 +396,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void dispose() {
     _apiService.dispose();
-    _bannerAd?.dispose();
     _nameController.dispose();
     _hostController.dispose();
     _portController.dispose();
@@ -794,10 +749,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: _buildAdSection(),
               ),
             ],
           ),

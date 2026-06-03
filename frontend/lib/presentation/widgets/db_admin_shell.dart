@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class DbAdminSection {
   const DbAdminSection({
@@ -36,57 +35,6 @@ class DbAdminShell extends StatefulWidget {
 }
 
 class _DbAdminShellState extends State<DbAdminShell> {
-  BannerAd? _bannerAd;
-
-  @override
-  void initState() {
-    super.initState();
-    _bannerAd = BannerAd(
-      adUnitId: 'ca-app-pub-3940256099942544/6300978111',
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdFailedToLoad: (ad, error) => ad.dispose(),
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() {
-    _bannerAd?.dispose();
-    super.dispose();
-  }
-
-  Widget _buildAdSection() {
-    if (_bannerAd != null) {
-      return SizedBox(
-        width: double.infinity,
-        height: 50,
-        child: Center(
-          child: SizedBox(
-            width: _bannerAd!.size.width.toDouble(),
-            height: _bannerAd!.size.height.toDouble(),
-            child: AdWidget(ad: _bannerAd!),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 50,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: const Center(
-        child: Text(
-          'Ad banner area',
-          style: TextStyle(color: Colors.white70),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final headerBase = widget.headerColor;
@@ -192,10 +140,6 @@ class _DbAdminShellState extends State<DbAdminShell> {
                     );
                   },
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: _buildAdSection(),
               ),
             ],
           ),

@@ -277,11 +277,10 @@ def get_oracle_object_parameters(payload, object_name: str, object_type: str, sc
             FROM all_arguments
             WHERE owner = :owner
               AND object_name = :name
-              AND argument_name IS NOT NULL
             ORDER BY position
         """, owner=owner, name=name)
         return [
-            {"name": row[0], "dataType": row[1], "direction": row[2], "hasDefault": str(row[3]).upper() == "Y"}
+            {"name": row[0] or "RETURN", "dataType": row[1] or "", "direction": row[2] or "OUT", "hasDefault": str(row[3]).upper() == "Y"}
             for row in cursor.fetchall()
         ]
     finally:

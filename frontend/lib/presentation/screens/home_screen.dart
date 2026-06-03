@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
@@ -25,8 +24,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
 
-  BannerAd? _bannerAd;
-
   bool _loading = true;
   bool _connecting = false;
   int _selectedIndex = 0;
@@ -40,18 +37,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadData();
-    _loadBanner();
-  }
-
-  void _loadBanner() {
-    _bannerAd = BannerAd(
-      adUnitId: 'ca-app-pub-3940256099942544/6300978111',
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdFailedToLoad: (ad, error) => ad.dispose(),
-      ),
-    )..load();
   }
 
   Future<void> _loadData() async {
@@ -860,37 +845,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAdSection() {
-    if (_bannerAd != null) {
-      return SizedBox(
-        width: double.infinity,
-        height: 56,
-        child: Center(
-          child: SizedBox(
-            width: _bannerAd!.size.width.toDouble(),
-            height: _bannerAd!.size.height.toDouble(),
-            child: AdWidget(ad: _bannerAd!),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFF15181E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: const Center(
-        child: Text(
-          'Ad banner',
-          style: TextStyle(color: Colors.white38),
-        ),
-      ),
-    );
-  }
-
   Widget _bottomNavItem({
     required int index,
     required IconData icon,
@@ -997,7 +951,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _bannerAd?.dispose();
     _apiService.dispose();
     super.dispose();
   }
@@ -1036,11 +989,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            if (!_loading)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: _buildAdSection(),
-              ),
           ],
         ),
       ),

@@ -937,6 +937,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final result = _result;
     if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
     if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
+    if (_isCommandMessageResult(result)) {
+      final message = result.rows.isNotEmpty && result.rows.first.isNotEmpty
+          ? (result.rows.first.first?.toString() ?? QeStrings.commandExecuted)
+          : QeStrings.commandExecuted;
+      return _CommandResultPanel(message: message);
+    }
 
     final totalRows = result.rows.length;
     final pageCount = (totalRows / _rowsPerPage).ceil().clamp(1, 999999).toInt();
@@ -1051,6 +1057,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         );
       },
     );
+  }
+
+  bool _isCommandMessageResult(QueryExecuteResult result) {
+    return result.columns.length == 1 &&
+        result.columns.first.toLowerCase() == 'message' &&
+        result.rows.length <= 1;
   }
 
   Widget _buildMessages(ThemeData theme, ColorScheme colors) {
@@ -2180,6 +2192,50 @@ class _ErrorPanel extends StatelessWidget {
             const SizedBox(height: 8),
             SelectableText(message, textAlign: TextAlign.center),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommandResultPanel extends StatelessWidget {
+  const _CommandResultPanel({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF123329),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.greenAccent.withOpacity(0.35)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.check_circle_rounded, color: colors.primary, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SelectableText(
+                  message,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurface,
+                    height: 1.45,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
