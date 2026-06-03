@@ -15,7 +15,6 @@ from app.schemas.connections import (
     ObjectParametersRequest,
 )
 from app.services.db_explorer_service import DbExplorerError, DbExplorerService
-from app.services.ai_query_service import AiQueryError, generate_sql_with_ai
 
 router = APIRouter(prefix="/api/v1", tags=["db_explorer"])
 service = DbExplorerService()
@@ -32,18 +31,6 @@ class QueryExecuteResponse(BaseModel):
     rows: list[list[Any]]
     rowCount: int
     message: str
-
-class QueryGenerateRequest(BaseModel):
-    connection: ConnectionTestRequest
-    prompt: str
-    currentSql: str | None = None
-    objectName: str | None = None
-    objectType: str | None = None
-    schemaName: str | None = None
-
-class QueryGenerateResponse(BaseModel):
-    sql: str
-    notes: str = ""
 
 @router.post("/objects", response_model=DbObjectListResponse)
 def get_objects(payload: ConnectionTestRequest):
@@ -107,27 +94,5 @@ def execute_query(payload: QueryExecuteRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-@router.post("/generate-query", response_model=QueryGenerateResponse)
-def generate_query(payload: QueryGenerateRequest):
-    try:
-        clean_prompt = payload.prompt.strip()
-        if not clean_prompt:
-            raise DbExplorerError("Describe the query you want to generate.")
-        result = generate_sql_with_ai(
-            provider=payload.connection.provider,
-            request_text=clean_prompt,
-            current_sql=payload.currentSql,
-            object_name=payload.objectName,
-            object_type=payload.objectType,
-            schema_name=payload.schemaName,
-        )
-        return QueryGenerateResponse(**result)
-    except AiQueryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except DbExplorerError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -177,23 +177,6 @@ class QueryExecuteResult {
   }
 }
 
-class QueryGenerateResult {
-  final String sql;
-  final String notes;
-
-  QueryGenerateResult({
-    required this.sql,
-    required this.notes,
-  });
-
-  factory QueryGenerateResult.fromJson(Map<String, dynamic> json) {
-    return QueryGenerateResult(
-      sql: (json['sql'] ?? '').toString(),
-      notes: (json['notes'] ?? '').toString(),
-    );
-  }
-}
-
 class DbObjectDefinitionResult {
   final String provider;
   final String objectName;
@@ -426,36 +409,6 @@ class ConnectionApiService {
     }
 
     return QueryExecuteResult.fromJson(data);
-  }
-
-  Future<QueryGenerateResult> generateQuery(
-    ConnectionRequest request, {
-    required String prompt,
-    String? currentSql,
-    String? objectName,
-    String? objectType,
-    String? schemaName,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/api/v1/generate-query');
-
-    final response = await _client.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'connection': request.toJson(),
-        'prompt': prompt,
-        'currentSql': currentSql,
-        'objectName': objectName,
-        'objectType': objectType,
-        'schemaName': schemaName,
-      }),
-    ).timeout(const Duration(seconds: 60));
-
-    if (response.statusCode != 200) {
-      throw Exception('Error ${response.statusCode}: ${_errorMessage(response)}');
-    }
-
-    return QueryGenerateResult.fromJson(_decode(response));
   }
 
   Future<DbObjectDefinitionResult> getObjectDefinition(
