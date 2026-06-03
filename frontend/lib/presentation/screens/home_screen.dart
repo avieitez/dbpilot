@@ -27,6 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = true;
   bool _connecting = false;
   int _selectedIndex = 0;
+  DatabaseProvider? _expandedConnectionProvider;
+  DatabaseProvider? _expandedQueryProvider;
 
   List<Map<String, dynamic>> _connections = [];
   List<QueryHistoryItem> _queries = [];
@@ -773,21 +775,29 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         else
           for (final provider in DatabaseProvider.values) ...[
-            if ((grouped[provider] ?? []).isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 16, 4, 10),
-                child: Text(
-                  provider.label,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              ...grouped[provider]!.map(_connectionCard),
-            ],
+            if ((grouped[provider] ?? []).isNotEmpty)
+              _buildConnectionProviderSection(provider, grouped[provider]!),
           ],
       ],
+    );
+  }
+
+  Widget _buildConnectionProviderSection(
+    DatabaseProvider provider,
+    List<Map<String, dynamic>> connections,
+  ) {
+    final expanded = _expandedConnectionProvider == provider;
+
+    return _buildProviderAccordion(
+      provider: provider,
+      count: connections.length,
+      expanded: expanded,
+      onToggle: () {
+        setState(() {
+          _expandedConnectionProvider = expanded ? null : provider;
+        });
+      },
+      children: connections.map(_connectionCard).toList(),
     );
   }
 
@@ -821,21 +831,107 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         else
           for (final provider in DatabaseProvider.values) ...[
-            if ((grouped[provider] ?? []).isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 16, 4, 10),
-                child: Text(
-                  provider.label,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              ...grouped[provider]!.map(_queryCard),
-            ],
+            if ((grouped[provider] ?? []).isNotEmpty)
+              _buildQueryProviderSection(provider, grouped[provider]!),
           ],
       ],
+    );
+  }
+
+  Widget _buildQueryProviderSection(
+    DatabaseProvider provider,
+    List<QueryHistoryItem> queries,
+  ) {
+    final expanded = _expandedQueryProvider == provider;
+
+    return _buildProviderAccordion(
+      provider: provider,
+      count: queries.length,
+      expanded: expanded,
+      onToggle: () {
+        setState(() {
+          _expandedQueryProvider = expanded ? null : provider;
+        });
+      },
+      children: queries.map(_queryCard).toList(),
+    );
+  }
+
+  Widget _buildProviderAccordion({
+    required DatabaseProvider provider,
+    required int count,
+    required bool expanded,
+    required VoidCallback onToggle,
+    required List<Widget> children,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF15181E),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: expanded
+                ? const Color(0xFF2D8CFF).withOpacity(0.45)
+                : Colors.white.withOpacity(0.08),
+          ),
+        ),
+        child: Column(
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    _providerIcon(provider),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        provider.label,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$count',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: const Icon(Icons.keyboard_arrow_down_rounded),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: expanded
+                    ? Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        child: Column(children: children),
+                      )
+                    : const SizedBox(width: double.infinity, height: 0),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -854,7 +950,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _selectedIndex = index),
+        onTap: () => setState(() {
+          if (_selectedIndex != index) {
+            if (index == 0) _expandedConnectionProvider = null;
+            if (index == 1) _expandedQueryProvider = null;
+          }
+          _selectedIndex = index;
+        }),
         child: AnimatedScale(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
