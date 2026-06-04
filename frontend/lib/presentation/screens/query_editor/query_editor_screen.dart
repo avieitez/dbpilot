@@ -617,6 +617,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               });
 
               await speech.listen(
+                localeId: 'en_US',
                 listenMode: stt.ListenMode.dictation,
                 onResult: (result) {
                   promptText = result.recognizedWords;
@@ -676,7 +677,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Spanish and English only. Simple SELECT, COUNT, WHERE, ORDER BY and LIMIT requests are supported.',
+                      'English only. Simple SELECT, COUNT, WHERE, ORDER BY and LIMIT requests are supported.',
                       style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
                     ),
                     const SizedBox(height: 12),
@@ -687,7 +688,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
                       decoration: const InputDecoration(
-                        hintText: 'Example: quiero todos los registros de la tabla prueba',
+                        hintText: 'Example: show all records from table customers',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -2989,12 +2990,10 @@ class _LocalSqlGenerator {
     String? fallbackSchema,
   }) {
     final normalized = _normalize(prompt);
-    final language = _detectLanguage(normalized);
-
-    if (language == null) {
+    if (!_isEnglishRequest(normalized)) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'Only Spanish and English requests are supported.',
+        message: 'Only English requests are supported.',
       );
     }
 
@@ -3007,7 +3006,7 @@ class _LocalSqlGenerator {
     }
 
     final columns = _extractColumns(normalized, table!);
-    final count = _hasAny(normalized, const ['count', 'contar', 'cuenta', 'conteo', 'cantidad']);
+    final count = _hasAny(normalized, const ['count']);
     final where = _extractWhere(normalized);
     final orderBy = _extractOrderBy(normalized);
     final limit = _extractLimit(normalized);
@@ -3053,22 +3052,7 @@ class _LocalSqlGenerator {
         .trim();
   }
 
-  static String? _detectLanguage(String value) {
-    final spanishHits = _countHits(value, const [
-      'quiero',
-      'necesito',
-      'selecciona',
-      'seleccionar',
-      'registros',
-      'tabla',
-      'donde',
-      'ordenar',
-      'limite',
-      'mayor',
-      'menor',
-      'igual',
-      'contar',
-    ]);
+  static bool _isEnglishRequest(String value) {
     final englishHits = _countHits(value, const [
       'select',
       'show',
@@ -3085,8 +3069,7 @@ class _LocalSqlGenerator {
       'count',
     ]);
 
-    if (spanishHits == 0 && englishHits == 0) return null;
-    return spanishHits >= englishHits ? 'es' : 'en';
+    return englishHits > 0;
   }
 
   static int _countHits(String value, List<String> words) {
@@ -3099,8 +3082,8 @@ class _LocalSqlGenerator {
 
   static String? _extractTable(String value) {
     final patterns = [
-      RegExp(r'\b(?:tabla|table)\s+([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
-      RegExp(r'\b(?:de|from)\s+(?:la\s+|el\s+)?(?:tabla\s+|table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\btable\s+([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\bfrom\s+(?:table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
     ];
 
     for (final pattern in patterns) {
@@ -3115,19 +3098,19 @@ class _LocalSqlGenerator {
   }
 
   static List<String> _extractColumns(String value, String table) {
-    if (_hasAny(value, const ['todo', 'todos', 'todas', 'all', 'registros', 'records', 'rows'])) {
+    if (_hasAny(value, const ['all', 'records', 'rows'])) {
       return const [];
     }
 
     final match = RegExp(
-      r'\b(?:columnas|campos|fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:de|from|donde|where|orden|order|limite|limit)\b|$)',
+      r'\b(?:fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:from|where|order|limit)\b|$)',
     ).firstMatch(value);
 
     final raw = match?.group(1);
     if (raw == null) return const [];
 
     final columns = raw
-        .split(RegExp(r'\s*,\s*|\s+y\s+|\s+and\s+'))
+        .split(RegExp(r'\s*,\s*|\s+and\s+'))
         .map((item) => item.trim())
         .where(_isSafeIdentifier)
         .where((item) => item != table)
@@ -3137,14 +3120,14 @@ class _LocalSqlGenerator {
   }
 
   static _LocalSqlCondition? _extractWhere(String value) {
-    final whereMatch = RegExp(r'\b(?:donde|where)\s+(.+?)(?:\s+(?:ordenar|orden|order|limite|limit)\b|$)').firstMatch(value);
+    final whereMatch = RegExp(r'\bwhere\s+(.+?)(?:\s+(?:order|limit)\b|$)').firstMatch(value);
     final segment = whereMatch?.group(1);
     if (segment == null) return null;
 
     final conditionPatterns = <({RegExp regex, String comparison})>[
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:mayor\s+que|greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:menor\s+que|less\s+than)\s+(.+)$'), comparison: '<'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:igual\s+a|equals|equal\s+to|is)\s+(.+)$'), comparison: '='),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+less\s+than\s+(.+)$'), comparison: '<'),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal\s+to|is)\s+(.+)$'), comparison: '='),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'), comparison: ''),
     ];
 
@@ -3167,19 +3150,19 @@ class _LocalSqlGenerator {
   }
 
   static _LocalSqlOrder? _extractOrderBy(String value) {
-    final match = RegExp(r'\b(?:ordenar\s+por|orden\s+por|order\s+by)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascendente|descendente))?').firstMatch(value);
+    final match = RegExp(r'\border\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascending|descending))?').firstMatch(value);
     final column = match?.group(1);
     if (!_isSafeIdentifier(column)) return null;
 
     final direction = match?.group(2) ?? '';
     return _LocalSqlOrder(
       column: column!,
-      descending: direction == 'desc' || direction == 'descendente',
+      descending: direction == 'desc' || direction == 'descending',
     );
   }
 
   static int? _extractLimit(String value) {
-    final match = RegExp(r'\b(?:limite|limit|top|primeros|first)\s+(\d{1,4})\b').firstMatch(value);
+    final match = RegExp(r'\b(?:limit|top|first)\s+(\d{1,4})\b').firstMatch(value);
     final parsed = int.tryParse(match?.group(1) ?? '');
     if (parsed == null) return null;
     return parsed.clamp(1, 5000).toInt();
@@ -3223,9 +3206,7 @@ class _LocalSqlGenerator {
   }
 
   static const Set<String> _reservedTableWords = {
-    'tabla',
     'table',
-    'registros',
     'records',
     'rows',
   };
