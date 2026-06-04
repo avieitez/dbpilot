@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
 import '../../../core/strings/strings.dart';
@@ -40,7 +41,6 @@ class QueryEditorScreen extends StatefulWidget {
 }
 
 class _QueryEditorScreenState extends State<QueryEditorScreen> {
-  static const double _editorLineHeight = 21;
   static final Map<String, _QueryEditorSessionSnapshot> _sessionSnapshots = {};
 
   final _historyService = QueryHistoryStorageService();
@@ -54,7 +54,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   int _timeoutSeconds = 30;
   int _resultsPage = 0;
   int _rowsPerPage = 10;
+  double _editorFontSize = 14;
   bool _safeMode = true;
+  bool _confirmDangerousQueries = true;
+  bool _showLineNumbers = true;
+  bool _autoFormatOnLoad = false;
+  bool _exportHeaders = true;
   bool _executing = false;
   bool _savingExecutedQuery = false;
   bool _allowPopAfterPendingSaveAttempt = false;
@@ -63,6 +68,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   String? _errorMessage;
   String? _lastSuccessfulSql;
   String? _lastSavedSql;
+  String _csvSeparator = ',';
+  String _editorTheme = 'Dark';
+  String _defaultExportFormat = 'CSV';
   QueryExecuteResult? _result;
   final List<_HistoryEntry> _history = [];
   final List<String> _messages = [];
@@ -72,6 +80,21 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         widget.connection.name,
         widget.connectionSummary,
       ].join('|');
+
+  double get _effectiveEditorLineHeight => _editorFontSize * 1.5;
+
+  bool get _isHighContrastEditor => _editorTheme.toLowerCase().contains('contrast');
+
+  Color get _editorBackgroundColor => _isHighContrastEditor ? const Color(0xFF000000) : const Color(0xFF07101B);
+
+  Color get _editorTextColor => _isHighContrastEditor ? Colors.white : const Color(0xFFD6E2F0);
+
+  Color _editorBorderColor(ColorScheme colors) {
+    if (_editorFocusNode.hasFocus) {
+      return _isHighContrastEditor ? const Color(0xFFFFD866) : colors.primary.withOpacity(0.75);
+    }
+    return _isHighContrastEditor ? Colors.white.withOpacity(0.42) : colors.outlineVariant.withOpacity(0.55);
+  }
 
   @override
   void initState() {
@@ -94,7 +117,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _timeoutSeconds = snapshot.timeoutSeconds;
       _resultsPage = snapshot.resultsPage;
       _rowsPerPage = snapshot.rowsPerPage;
+      _editorFontSize = snapshot.editorFontSize;
       _safeMode = snapshot.safeMode;
+      _showLineNumbers = snapshot.showLineNumbers;
+      _exportHeaders = snapshot.exportHeaders;
+      _csvSeparator = snapshot.csvSeparator;
       _lastSuccessfulSql = snapshot.lastSuccessfulSql;
       _lastSavedSql = snapshot.lastSavedSql;
       _history
@@ -104,6 +131,43 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         ..clear()
         ..addAll(snapshot.messages);
     }
+    _loadEditorSettings();
+  }
+
+  Future<void> _loadEditorSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+
+    setState(() {
+      _safeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
+      _timeoutSeconds = prefs.getInt('settings.defaultTimeout') ?? 30;
+      _limit = prefs.getInt('settings.defaultLimit') ?? 100;
+      _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
+      _confirmDangerousQueries = prefs.getBool('settings.confirmDangerousQueries') ?? true;
+      _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
+      _autoFormatOnLoad = prefs.getBool('settings.autoFormatOnLoad') ?? false;
+      _exportHeaders = prefs.getBool('settings.exportHeaders') ?? true;
+      _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
+      _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
+      _defaultExportFormat = prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _sqlController.highContrast = _isHighContrastEditor;
+    });
+
+    if (_autoFormatOnLoad && _sqlController.text.trim().isNotEmpty) {
+      _formatSql(showMessage: false, requestFocus: false);
+    }
+  }
+
+  void _setSafeMode(bool value) {
+    setState(() => _safeMode = value);
+  }
+
+  void _setLimit(int value) {
+    setState(() => _limit = value);
+  }
+
+  void _setTimeoutSeconds(int value) {
+    setState(() => _timeoutSeconds = value);
   }
 
   void _refreshEditorChrome() {
@@ -192,7 +256,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       return;
     }
 
-    if (!_safeMode && _isDangerousStatement(sql)) {
+    if (!_safeMode && _confirmDangerousQueries && _isDangerousStatement(sql)) {
       final confirmed = await _confirmDataModification(sql);
       if (!confirmed) {
         _addMessage(QeStrings.executionCancelled);
@@ -359,9 +423,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }).toList();
   }
 
-  String _resultsAsDelimitedText(QueryExecuteResult result, String separator) {
+  String _resultsAsDelimitedText(
+    QueryExecuteResult result,
+    String separator, {
+    bool includeHeaders = true,
+  }) {
     final buffer = StringBuffer();
-    buffer.writeln(result.columns.map(_csvEscape).join(separator));
+    if (includeHeaders) {
+      buffer.writeln(result.columns.map(_csvEscape).join(separator));
+    }
 
     for (final row in result.rows) {
       final values = <String>[];
@@ -410,7 +480,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     await Clipboard.setData(
-      ClipboardData(text: _resultsAsDelimitedText(result, '\t')),
+      ClipboardData(text: _resultsAsDelimitedText(result, '\t', includeHeaders: _exportHeaders)),
     );
 
     _addMessage('Results copied to clipboard.');
@@ -426,7 +496,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     try {
       await _shareTextFile(
-        content: _resultsAsDelimitedText(result, ','),
+        content: _resultsAsDelimitedText(result, _csvSeparator, includeHeaders: _exportHeaders),
         fileName: 'results_${_exportTimestamp()}.csv',
         shareText: 'Query results CSV',
       );
@@ -469,7 +539,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     try {
       await _shareTextFile(
-        content: _resultsAsDelimitedText(result, '\t'),
+        content: _resultsAsDelimitedText(result, '\t', includeHeaders: _exportHeaders),
         fileName: 'results_${_exportTimestamp()}.xls',
         shareText: 'Query results Excel',
       );
@@ -477,6 +547,21 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _addMessage('Excel export generated successfully.');
     } catch (error) {
       _addMessage('Excel export failed: $error');
+    }
+  }
+
+  Future<void> _exportResultsDefault() async {
+    switch (_defaultExportFormat.toUpperCase()) {
+      case 'JSON':
+        await _exportResultsToJson();
+        break;
+      case 'EXCEL':
+        await _exportResultsToExcel();
+        break;
+      case 'CSV':
+      default:
+        await _exportResultsToCsv();
+        break;
     }
   }
 
@@ -792,7 +877,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
   }
 
-  void _formatSql() {
+  void _formatSql({bool showMessage = true, bool requestFocus = true}) {
     var sql = _sqlController.text.trim();
     if (sql.isEmpty) return;
 
@@ -815,9 +900,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       sql = sql.replaceAll(RegExp(pattern, caseSensitive: false), replacement);
     });
 
-    _sqlController.text = sql.replaceAll(RegExp(r'\n{2,}'), '\n').trim();
-    _addMessage(QeStrings.sqlFormatted);
-    _editorFocusNode.requestFocus();
+    final formatted = sql.replaceAll(RegExp(r'\n{2,}'), '\n').trim();
+    if (formatted == _sqlController.text.trim()) return;
+
+    _sqlController.text = formatted;
+    if (showMessage) _addMessage(QeStrings.sqlFormatted);
+    if (requestFocus) _editorFocusNode.requestFocus();
   }
 
   void _clearEditor() {
@@ -828,6 +916,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   void _loadHistory(_HistoryEntry entry) {
     _sqlController.text = entry.sql;
+    if (_autoFormatOnLoad) {
+      _formatSql(showMessage: false, requestFocus: false);
+    }
     setState(() => _selectedTab = 0);
     _editorFocusNode.requestFocus();
   }
@@ -841,7 +932,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       timeoutSeconds: _timeoutSeconds,
       resultsPage: 0,
       rowsPerPage: _rowsPerPage,
+      editorFontSize: _editorFontSize,
       safeMode: _safeMode,
+      showLineNumbers: _showLineNumbers,
+      exportHeaders: _exportHeaders,
+      csvSeparator: _csvSeparator,
       lastSuccessfulSql: _lastSuccessfulSql,
       lastSavedSql: _lastSavedSql,
       history: List<_HistoryEntry>.of(_history),
@@ -910,13 +1005,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: const Color(0xFF07101B),
+                color: _editorBackgroundColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _editorFocusNode.hasFocus
-                      ? colors.primary.withOpacity(0.75)
-                      : colors.outlineVariant.withOpacity(0.55),
-                ),
+                border: Border.all(color: _editorBorderColor(colors)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.24),
@@ -938,11 +1029,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _LineNumbers(
-                            controller: _sqlController,
-                            scrollController: _editorScrollController,
-                            lineHeight: _editorLineHeight,
-                          ),
+                          if (_showLineNumbers)
+                            _LineNumbers(
+                              controller: _sqlController,
+                              scrollController: _editorScrollController,
+                              lineHeight: _effectiveEditorLineHeight,
+                            ),
                           Expanded(
                             child: TextField(
                               focusNode: _editorFocusNode,
@@ -957,10 +1049,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                               enableSuggestions: false,
                               scrollPadding: const EdgeInsets.only(bottom: 180),
                               onTapOutside: (_) {},
-                              cursorColor: colors.secondary,
+                              cursorColor: _isHighContrastEditor ? const Color(0xFFFFFF00) : colors.secondary,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFFD6E2F0),
+                                color: _editorTextColor,
                                 fontFamily: 'monospace',
+                                fontSize: _editorFontSize,
                                 height: 1.5,
                                 letterSpacing: 0,
                               ),
@@ -1094,7 +1187,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               Tooltip(
                 message: _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
                 child: IconButton.filledTonal(
-                  onPressed: () => setState(() => _safeMode = !_safeMode),
+                  onPressed: () => _setSafeMode(!_safeMode),
                   icon: Icon(_safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded),
                   color: _safeMode ? colors.primary : colors.error,
                 ),
@@ -1136,16 +1229,16 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       ],
                     ),
                   ),
-                  Switch(value: _safeMode, onChanged: (value) => setState(() => _safeMode = value)),
+                  Switch(value: _safeMode, onChanged: (value) => _setSafeMode(value)),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(child: _DropDownBox<int>(label: QeStrings.limit, value: _limit, values: const [50, 100, 250, 500], onChanged: (v) => setState(() => _limit = v))),
+                Expanded(child: _DropDownBox<int>(label: QeStrings.limit, value: _limit, values: const [50, 100, 250, 500], onChanged: (value) => _setLimit(value))),
                 const SizedBox(width: 8),
-                Expanded(child: _DropDownBox<int>(label: QeStrings.timeout, value: _timeoutSeconds, values: const [10, 30, 60], suffix: 's', onChanged: (v) => setState(() => _timeoutSeconds = v))),
+                Expanded(child: _DropDownBox<int>(label: QeStrings.timeout, value: _timeoutSeconds, values: const [10, 30, 60], suffix: 's', onChanged: (value) => _setTimeoutSeconds(value))),
               ],
             ),
             const SizedBox(height: 8),
@@ -1212,6 +1305,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   if (compact && result.rows.isNotEmpty)
                     _ResultsExportMenu(
                       onCopy: _copyResultsToClipboard,
+                      onDefaultExport: _exportResultsDefault,
+                      defaultExportFormat: _defaultExportFormat,
                       onCsv: _exportResultsToCsv,
                       onJson: _exportResultsToJson,
                       onExcel: _exportResultsToExcel,
@@ -1235,6 +1330,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                 child: _ExportToolbar(
                   hasRows: result.rows.isNotEmpty,
                   onCopy: _copyResultsToClipboard,
+                  onDefaultExport: _exportResultsDefault,
+                  defaultExportFormat: _defaultExportFormat,
                   onCsv: _exportResultsToCsv,
                   onJson: _exportResultsToJson,
                   onExcel: _exportResultsToExcel,
@@ -1562,6 +1659,8 @@ class _ExportToolbar extends StatelessWidget {
   const _ExportToolbar({
     required this.hasRows,
     required this.onCopy,
+    required this.onDefaultExport,
+    required this.defaultExportFormat,
     required this.onCsv,
     required this.onJson,
     required this.onExcel,
@@ -1569,6 +1668,8 @@ class _ExportToolbar extends StatelessWidget {
 
   final bool hasRows;
   final VoidCallback onCopy;
+  final VoidCallback onDefaultExport;
+  final String defaultExportFormat;
   final VoidCallback onCsv;
   final VoidCallback onJson;
   final VoidCallback onExcel;
@@ -1579,6 +1680,13 @@ class _ExportToolbar extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
+          _ExportButton(
+            icon: Icons.file_download_outlined,
+            label: 'Export $defaultExportFormat',
+            enabled: hasRows,
+            onPressed: onDefaultExport,
+          ),
+          const SizedBox(width: 8),
           _ExportButton(
             icon: Icons.copy_all_rounded,
             label: 'Copy',
@@ -1653,12 +1761,16 @@ class _ExportButton extends StatelessWidget {
 class _ResultsExportMenu extends StatelessWidget {
   const _ResultsExportMenu({
     required this.onCopy,
+    required this.onDefaultExport,
+    required this.defaultExportFormat,
     required this.onCsv,
     required this.onJson,
     required this.onExcel,
   });
 
   final VoidCallback onCopy;
+  final VoidCallback onDefaultExport;
+  final String defaultExportFormat;
   final VoidCallback onCsv;
   final VoidCallback onJson;
   final VoidCallback onExcel;
@@ -1670,6 +1782,9 @@ class _ResultsExportMenu extends StatelessWidget {
       icon: const Icon(Icons.file_download_outlined),
       onSelected: (value) {
         switch (value) {
+          case 'default':
+            onDefaultExport();
+            break;
           case 'copy':
             onCopy();
             break;
@@ -1684,11 +1799,12 @@ class _ResultsExportMenu extends StatelessWidget {
             break;
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem(value: 'copy', child: Text('Copy')),
-        PopupMenuItem(value: 'csv', child: Text('CSV')),
-        PopupMenuItem(value: 'json', child: Text('JSON')),
-        PopupMenuItem(value: 'excel', child: Text('Excel')),
+      itemBuilder: (context) => [
+        PopupMenuItem(value: 'default', child: Text('Export $defaultExportFormat')),
+        const PopupMenuItem(value: 'copy', child: Text('Copy')),
+        const PopupMenuItem(value: 'csv', child: Text('CSV')),
+        const PopupMenuItem(value: 'json', child: Text('JSON')),
+        const PopupMenuItem(value: 'excel', child: Text('Excel')),
       ],
     );
   }
@@ -2538,6 +2654,7 @@ class _SqlTextEditingController extends TextEditingController {
   final Set<String> _functionNames;
   final Set<String> _dataTypeNames;
   late final RegExp _tokenPattern;
+  bool highContrast = false;
 
   @override
   TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
@@ -2562,17 +2679,35 @@ class _SqlTextEditingController extends TextEditingController {
   }
 
   TextStyle _styleForToken(String token, int tokenEnd) {
-    if (token.startsWith('--')) return const TextStyle(color: Color(0xFF7A8797), fontStyle: FontStyle.italic);
-    if (token.startsWith("'")) return const TextStyle(color: Color(0xFFFFB86C));
-    if (RegExp(r'^\d').hasMatch(token)) return const TextStyle(color: Color(0xFFFFD866));
+    if (token.startsWith('--')) {
+      return TextStyle(
+        color: highContrast ? const Color(0xFFB7C0CC) : const Color(0xFF7A8797),
+        fontStyle: FontStyle.italic,
+      );
+    }
+    if (token.startsWith("'")) {
+      return TextStyle(color: highContrast ? const Color(0xFFFFB000) : const Color(0xFFFFB86C));
+    }
+    if (RegExp(r'^\d').hasMatch(token)) {
+      return TextStyle(color: highContrast ? const Color(0xFFFFFF00) : const Color(0xFFFFD866));
+    }
     final normalized = token.toLowerCase();
     if (_functionNames.contains(normalized) && _isFunctionUsage(normalized, tokenEnd)) {
-      return const TextStyle(color: Color(0xFFFF4FD8), fontWeight: FontWeight.w800);
+      return TextStyle(
+        color: highContrast ? const Color(0xFFFF3BFF) : const Color(0xFFFF4FD8),
+        fontWeight: FontWeight.w900,
+      );
     }
     if (_dataTypeNames.contains(normalized)) {
-      return const TextStyle(color: Color(0xFF93E8A7), fontWeight: FontWeight.w800);
+      return TextStyle(
+        color: highContrast ? const Color(0xFF00FF66) : const Color(0xFF93E8A7),
+        fontWeight: FontWeight.w900,
+      );
     }
-    return const TextStyle(color: Color(0xFF65B8FF), fontWeight: FontWeight.w700);
+    return TextStyle(
+      color: highContrast ? const Color(0xFF00D5FF) : const Color(0xFF65B8FF),
+      fontWeight: highContrast ? FontWeight.w900 : FontWeight.w700,
+    );
   }
 
   bool _isFunctionUsage(String normalizedToken, int tokenEnd) {
@@ -3249,7 +3384,11 @@ class _QueryEditorSessionSnapshot {
     required this.timeoutSeconds,
     required this.resultsPage,
     required this.rowsPerPage,
+    required this.editorFontSize,
     required this.safeMode,
+    required this.showLineNumbers,
+    required this.exportHeaders,
+    required this.csvSeparator,
     required this.lastSuccessfulSql,
     required this.lastSavedSql,
     required this.history,
@@ -3262,7 +3401,11 @@ class _QueryEditorSessionSnapshot {
   final int timeoutSeconds;
   final int resultsPage;
   final int rowsPerPage;
+  final double editorFontSize;
   final bool safeMode;
+  final bool showLineNumbers;
+  final bool exportHeaders;
+  final String csvSeparator;
   final String? lastSuccessfulSql;
   final String? lastSavedSql;
   final List<_HistoryEntry> history;

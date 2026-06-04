@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
@@ -30,6 +31,18 @@ class _HomeScreenState extends State<HomeScreen> {
   DatabaseProvider? _expandedConnectionProvider;
   DatabaseProvider? _expandedQueryProvider;
 
+  bool _defaultSafeMode = true;
+  bool _confirmDangerousQueries = true;
+  bool _showLineNumbers = true;
+  bool _autoFormatOnLoad = false;
+  bool _exportHeaders = true;
+  int _defaultTimeout = 30;
+  int _defaultLimit = 100;
+  double _editorFontSize = 14;
+  String _editorTheme = 'Dark';
+  String _defaultExportFormat = 'CSV';
+  String _csvSeparator = ',';
+
   List<Map<String, dynamic>> _connections = [];
   List<QueryHistoryItem> _queries = [];
   String? _activeConnectionId;
@@ -45,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final connections = await _storageService.getSavedConnections();
     final queries = await _queryHistoryService.getQueries();
     final activeId = await _storageService.getActiveConnectionId();
+    final prefs = await SharedPreferences.getInstance();
 
     Map<String, dynamic>? active;
     for (final item in connections) {
@@ -61,6 +75,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _queries = queries;
       _activeConnectionId = activeId;
       _activeConnection = active;
+      _defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
+      _confirmDangerousQueries = prefs.getBool('settings.confirmDangerousQueries') ?? true;
+      _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
+      _autoFormatOnLoad = prefs.getBool('settings.autoFormatOnLoad') ?? false;
+      _exportHeaders = prefs.getBool('settings.exportHeaders') ?? true;
+      _defaultTimeout = prefs.getInt('settings.defaultTimeout') ?? 30;
+      _defaultLimit = prefs.getInt('settings.defaultLimit') ?? 100;
+      _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
+      _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
+      _defaultExportFormat = prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _loading = false;
     });
   }
@@ -936,9 +961,378 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSettings() {
-    return const Center(
-      child: Text('Settings'),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      children: [
+        const Text(
+          'Settings',
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _settingsSection(
+          icon: Icons.workspace_premium_rounded,
+          title: 'Subscription / Plan',
+          children: [
+            _planTile(),
+          ],
+        ),
+        _settingsSection(
+          icon: Icons.shield_outlined,
+          title: 'Security',
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _defaultSafeMode,
+              onChanged: (value) => _updateBoolSetting('settings.defaultSafeMode', value, (v) => _defaultSafeMode = v),
+              title: const Text('Safe Mode by default'),
+              subtitle: const Text('Only SELECT statements are allowed by default.'),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _confirmDangerousQueries,
+              onChanged: (value) => _updateBoolSetting('settings.confirmDangerousQueries', value, (v) => _confirmDangerousQueries = v),
+              title: const Text('Confirm dangerous queries'),
+              subtitle: const Text('Ask before INSERT, UPDATE, DELETE, DROP and similar commands.'),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: _settingsDropdown<int>(
+                    label: 'Default timeout',
+                    value: _defaultTimeout,
+                    values: const [10, 30, 60],
+                    labelFor: (value) => '${value}s',
+                    onChanged: (value) => _updateIntSetting('settings.defaultTimeout', value, (v) => _defaultTimeout = v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _settingsDropdown<int>(
+                    label: 'Default row limit',
+                    value: _defaultLimit,
+                    values: const [50, 100, 250, 500],
+                    labelFor: (value) => '$value',
+                    onChanged: (value) => _updateIntSetting('settings.defaultLimit', value, (v) => _defaultLimit = v),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        _settingsSection(
+          icon: Icons.terminal_rounded,
+          title: 'Query Editor',
+          children: [
+            _settingsDropdown<String>(
+              label: 'Editor theme',
+              value: _editorTheme,
+              values: const ['Dark', 'High contrast'],
+              labelFor: (value) => value,
+              onChanged: (value) => _updateStringSetting('settings.editorTheme', value, (v) => _editorTheme = v),
+            ),
+            const SizedBox(height: 10),
+            _settingsDropdown<double>(
+              label: 'Font size',
+              value: _editorFontSize,
+              values: const [12, 14, 16, 18],
+              labelFor: (value) => value.toStringAsFixed(0),
+              onChanged: (value) => _updateDoubleSetting('settings.editorFontSize', value, (v) => _editorFontSize = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _showLineNumbers,
+              onChanged: (value) => _updateBoolSetting('settings.showLineNumbers', value, (v) => _showLineNumbers = v),
+              title: const Text('Show line numbers'),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _autoFormatOnLoad,
+              onChanged: (value) => _updateBoolSetting('settings.autoFormatOnLoad', value, (v) => _autoFormatOnLoad = v),
+              title: const Text('Auto-format SQL on load'),
+            ),
+            const ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('Local SQL builder language'),
+              subtitle: Text('English only'),
+            ),
+          ],
+        ),
+        _settingsSection(
+          icon: Icons.file_download_outlined,
+          title: 'Exports',
+          children: [
+            _settingsDropdown<String>(
+              label: 'Default export format',
+              value: _defaultExportFormat,
+              values: const ['CSV', 'JSON', 'Excel'],
+              labelFor: (value) => value,
+              onChanged: (value) => _updateStringSetting('settings.defaultExportFormat', value, (v) => _defaultExportFormat = v),
+            ),
+            const SizedBox(height: 10),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _exportHeaders,
+              onChanged: (value) => _updateBoolSetting('settings.exportHeaders', value, (v) => _exportHeaders = v),
+              title: const Text('Include headers'),
+            ),
+            _settingsDropdown<String>(
+              label: 'CSV separator',
+              value: _csvSeparator,
+              values: const [',', ';', '\t'],
+              labelFor: (value) => value == '\t' ? 'Tab' : value,
+              onChanged: (value) => _updateStringSetting('settings.csvSeparator', value, (v) => _csvSeparator = v),
+            ),
+          ],
+        ),
+        _settingsSection(
+          icon: Icons.storage_rounded,
+          title: 'Data / Storage',
+          children: [
+            _actionTile(
+              icon: Icons.history_toggle_off_rounded,
+              title: 'Clear query history',
+              subtitle: '${_queries.length} saved queries',
+              onTap: _clearQueryHistory,
+            ),
+            _actionTile(
+              icon: Icons.delete_sweep_rounded,
+              title: 'Clear saved connections',
+              subtitle: '${_connections.length} saved connections',
+              onTap: _clearSavedConnections,
+            ),
+            _actionTile(
+              icon: Icons.ios_share_rounded,
+              title: 'Export / import settings',
+              subtitle: 'Coming soon',
+              onTap: () => _showInfo('Export / import settings will be added later.'),
+            ),
+            _actionTile(
+              icon: Icons.cleaning_services_rounded,
+              title: 'Clear local cache',
+              subtitle: 'Coming soon',
+              onTap: () => _showInfo('Local cache cleanup will be added later.'),
+            ),
+          ],
+        ),
+        _settingsSection(
+          icon: Icons.info_outline_rounded,
+          title: 'About',
+          children: [
+            const ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('DBPilot'),
+              subtitle: Text('Version 0.1.0'),
+            ),
+            _actionTile(
+              icon: Icons.privacy_tip_outlined,
+              title: 'Privacy policy',
+              subtitle: 'Coming soon',
+              onTap: () => _showInfo('Privacy policy will be added later.'),
+            ),
+            _actionTile(
+              icon: Icons.description_outlined,
+              title: 'Terms',
+              subtitle: 'Coming soon',
+              onTap: () => _showInfo('Terms will be added later.'),
+            ),
+            _actionTile(
+              icon: Icons.support_agent_rounded,
+              title: 'Contact / support',
+              subtitle: 'Coming soon',
+              onTap: () => _showInfo('Support contact will be added later.'),
+            ),
+          ],
+        ),
+      ],
     );
+  }
+
+  Widget _settingsSection({
+    required IconData icon,
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF15181E),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: const Color(0xFF2D8CFF)),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _planTile() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B2A4A),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF2D8CFF).withOpacity(0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Current plan: Free',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Up to 3 connections, limited history, CSV export and SELECT-only workflow.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _showInfo('Paywall screen will be added next.'),
+              icon: const Icon(Icons.workspace_premium_rounded),
+              label: const Text('Upgrade to Pro'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _settingsDropdown<T>({
+    required String label,
+    required T value,
+    required List<T> values,
+    required String Function(T value) labelFor,
+    required ValueChanged<T> onChanged,
+  }) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      decoration: InputDecoration(labelText: label),
+      items: values
+          .map(
+            (item) => DropdownMenuItem<T>(
+              value: item,
+              child: Text(labelFor(item)),
+            ),
+          )
+          .toList(),
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+
+  Widget _actionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: const Color(0xFF2D8CFF)),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
+
+  Future<void> _updateBoolSetting(String key, bool value, ValueChanged<bool> assign) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+    if (!mounted) return;
+    setState(() => assign(value));
+  }
+
+  Future<void> _updateIntSetting(String key, int value, ValueChanged<int> assign) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(key, value);
+    if (!mounted) return;
+    setState(() => assign(value));
+  }
+
+  Future<void> _updateDoubleSetting(String key, double value, ValueChanged<double> assign) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(key, value);
+    if (!mounted) return;
+    setState(() => assign(value));
+  }
+
+  Future<void> _updateStringSetting(String key, String value, ValueChanged<String> assign) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+    if (!mounted) return;
+    setState(() => assign(value));
+  }
+
+  Future<void> _clearQueryHistory() async {
+    final confirmed = await _confirmSettingsAction(
+      title: 'Clear query history?',
+      message: 'This will delete all saved query history.',
+    );
+    if (!confirmed) return;
+
+    await _queryHistoryService.clearHistory();
+    await _loadData();
+    _showInfo('Query history cleared.');
+  }
+
+  Future<void> _clearSavedConnections() async {
+    final confirmed = await _confirmSettingsAction(
+      title: 'Clear saved connections?',
+      message: 'This will delete all saved connections and stored passwords.',
+    );
+    if (!confirmed) return;
+
+    await _storageService.clearAllConnections();
+    await _loadData();
+    _showInfo('Saved connections cleared.');
+  }
+
+  Future<bool> _confirmSettingsAction({
+    required String title,
+    required String message,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Confirm')),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  void _showInfo(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _bottomNavItem({
