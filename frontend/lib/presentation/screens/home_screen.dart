@@ -1,6 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/constants/app_assets.dart';
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
@@ -21,6 +28,24 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const String _appName = 'DBPilot';
+  static const String _appVersion = '0.1.0';
+  static const String _appBuildNumber = '1';
+  static const String _supportEmail = 'support@dbpilot.app';
+  static const List<String> _settingsBackupKeys = [
+    'settings.defaultSafeMode',
+    'settings.confirmDangerousQueries',
+    'settings.showLineNumbers',
+    'settings.autoFormatOnLoad',
+    'settings.exportHeaders',
+    'settings.defaultTimeout',
+    'settings.defaultLimit',
+    'settings.editorFontSize',
+    'settings.editorTheme',
+    'settings.defaultExportFormat',
+    'settings.csvSeparator',
+  ];
+
   final _storageService = SavedConnectionStorageService();
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
@@ -1105,15 +1130,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _actionTile(
               icon: Icons.ios_share_rounded,
-              title: 'Export / import settings',
-              subtitle: 'Coming soon',
-              onTap: () => _showInfo('Export / import settings will be added later.'),
+              title: 'Export settings',
+              subtitle: 'Share a JSON backup of app preferences',
+              onTap: _exportSettings,
+            ),
+            _actionTile(
+              icon: Icons.input_rounded,
+              title: 'Import settings',
+              subtitle: 'Paste a DBPilot settings JSON backup',
+              onTap: _showImportSettingsDialog,
             ),
             _actionTile(
               icon: Icons.cleaning_services_rounded,
               title: 'Clear local cache',
-              subtitle: 'Coming soon',
-              onTap: () => _showInfo('Local cache cleanup will be added later.'),
+              subtitle: 'Clear active session and temporary editor state',
+              onTap: _clearLocalCache,
             ),
           ],
         ),
@@ -1121,28 +1152,45 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.info_outline_rounded,
           title: 'About',
           children: [
-            const ListTile(
+            ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text('DBPilot'),
-              subtitle: Text('Version 0.1.0'),
+              leading: _aboutAppIcon(size: 42),
+              title: const Text(_appName, style: TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text('Version $_appVersion ($_appBuildNumber)'),
+              trailing: TextButton(
+                onPressed: _showAppAboutDialog,
+                child: const Text('Details'),
+              ),
             ),
             _actionTile(
               icon: Icons.privacy_tip_outlined,
               title: 'Privacy policy',
-              subtitle: 'Coming soon',
-              onTap: () => _showInfo('Privacy policy will be added later.'),
+              subtitle: 'How DBPilot stores and uses local data',
+              onTap: _showPrivacyPolicy,
             ),
             _actionTile(
               icon: Icons.description_outlined,
               title: 'Terms',
-              subtitle: 'Coming soon',
-              onTap: () => _showInfo('Terms will be added later.'),
+              subtitle: 'Usage conditions and responsibilities',
+              onTap: _showTerms,
             ),
             _actionTile(
               icon: Icons.support_agent_rounded,
               title: 'Contact / support',
-              subtitle: 'Coming soon',
-              onTap: () => _showInfo('Support contact will be added later.'),
+              subtitle: _supportEmail,
+              onTap: _showSupport,
+            ),
+            _actionTile(
+              icon: Icons.copy_all_rounded,
+              title: 'Copy app info',
+              subtitle: 'Useful when reporting an issue',
+              onTap: _copyAppInfo,
+            ),
+            _actionTile(
+              icon: Icons.article_outlined,
+              title: 'Open source licenses',
+              subtitle: 'Flutter and package licenses',
+              onTap: _showLicenses,
             ),
           ],
         ),
@@ -1210,12 +1258,20 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => _showInfo('Paywall screen will be added next.'),
+              onPressed: _openPaywall,
               icon: const Icon(Icons.workspace_premium_rounded),
               label: const Text('Upgrade to Pro'),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openPaywall() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => const _PaywallScreen(),
       ),
     );
   }
@@ -1312,6 +1368,193 @@ class _HomeScreenState extends State<HomeScreen> {
     _showInfo('Saved connections cleared.');
   }
 
+  Future<void> _exportSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settings = <String, dynamic>{};
+
+    for (final key in _settingsBackupKeys) {
+      final value = prefs.get(key);
+      if (value != null) settings[key] = value;
+    }
+
+    final payload = {
+      'app': _appName,
+      'version': _appVersion,
+      'build': _appBuildNumber,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'settings': settings,
+    };
+
+    final encoder = const JsonEncoder.withIndent('  ');
+    final directory = await getApplicationDocumentsDirectory();
+    final file = File('${directory.path}/dbpilot_settings_${_exportTimestamp()}.json');
+    await file.writeAsString(encoder.convert(payload), flush: true);
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'DBPilot settings backup',
+    );
+
+    _showInfo('Settings exported.');
+  }
+
+  Future<void> _showImportSettingsDialog() async {
+    final controller = TextEditingController();
+
+    final imported = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import settings'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Paste a DBPilot settings JSON backup. This will update app preferences only.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                minLines: 6,
+                maxLines: 10,
+                keyboardType: TextInputType.multiline,
+                decoration: const InputDecoration(
+                  hintText: '{ "settings": { ... } }',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final data = await Clipboard.getData(Clipboard.kTextPlain);
+              controller.text = data?.text ?? '';
+            },
+            child: const Text('Paste'),
+          ),
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Import')),
+        ],
+      ),
+    );
+
+    if (imported != true) {
+      controller.dispose();
+      return;
+    }
+
+    final jsonText = controller.text.trim();
+    controller.dispose();
+
+    if (jsonText.isEmpty) {
+      _showInfo('No settings JSON provided.');
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map<String, dynamic>) {
+        _showInfo('Invalid settings backup.');
+        return;
+      }
+
+      final settingsPayload = decoded['settings'];
+      final settings = settingsPayload is Map<String, dynamic> ? settingsPayload : decoded;
+      final applied = await _applyImportedSettings(settings);
+
+      if (applied == 0) {
+        _showInfo('No supported settings found.');
+        return;
+      }
+
+      await _loadData();
+      _showInfo('$applied settings imported.');
+    } catch (error) {
+      _showInfo('Settings import failed: $error');
+    }
+  }
+
+  Future<int> _applyImportedSettings(Map<String, dynamic> settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    var applied = 0;
+
+    Future<void> setBool(String key) async {
+      final value = settings[key];
+      if (value is! bool) return;
+      await prefs.setBool(key, value);
+      applied++;
+    }
+
+    Future<void> setInt(String key, List<int> allowedValues) async {
+      final value = settings[key];
+      if (value is! num) return;
+      final intValue = value.toInt();
+      if (!allowedValues.contains(intValue)) return;
+      await prefs.setInt(key, intValue);
+      applied++;
+    }
+
+    Future<void> setDouble(String key, List<double> allowedValues) async {
+      final value = settings[key];
+      if (value is! num) return;
+      final doubleValue = value.toDouble();
+      if (!allowedValues.contains(doubleValue)) return;
+      await prefs.setDouble(key, doubleValue);
+      applied++;
+    }
+
+    Future<void> setString(String key, List<String> allowedValues) async {
+      final value = settings[key];
+      if (value is! String) return;
+      if (!allowedValues.contains(value)) return;
+      await prefs.setString(key, value);
+      applied++;
+    }
+
+    await setBool('settings.defaultSafeMode');
+    await setBool('settings.confirmDangerousQueries');
+    await setBool('settings.showLineNumbers');
+    await setBool('settings.autoFormatOnLoad');
+    await setBool('settings.exportHeaders');
+    await setInt('settings.defaultTimeout', const [10, 30, 60]);
+    await setInt('settings.defaultLimit', const [50, 100, 250, 500]);
+    await setDouble('settings.editorFontSize', const [12.0, 14.0, 16.0, 18.0]);
+    await setString('settings.editorTheme', const ['Dark', 'High contrast']);
+    await setString('settings.defaultExportFormat', const ['CSV', 'JSON', 'Excel']);
+    await setString('settings.csvSeparator', const [',', ';', '\t']);
+
+    return applied;
+  }
+
+  Future<void> _clearLocalCache() async {
+    final confirmed = await _confirmSettingsAction(
+      title: 'Clear local cache?',
+      message: 'This clears the active connection and temporary query editor sessions. Saved connections, query history and settings will not be deleted.',
+    );
+    if (!confirmed) return;
+
+    await _storageService.clearActiveConnectionId();
+    QueryEditorScreen.clearSessionCache();
+
+    if (!mounted) return;
+    setState(() {
+      _expandedConnectionProvider = null;
+      _expandedQueryProvider = null;
+    });
+    await _loadData();
+    _showInfo('Local cache cleared.');
+  }
+
+  String _exportTimestamp() {
+    return DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '')
+        .replaceAll('.', '')
+        .replaceAll('-', '')
+        .replaceAll('T', '_');
+  }
+
   Future<bool> _confirmSettingsAction({
     required String title,
     required String message,
@@ -1328,6 +1571,132 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     return result == true;
+  }
+
+  void _showAppAboutDialog() {
+    _showAboutTextDialog(
+      title: _appName,
+      icon: Icons.info_outline_rounded,
+      body:
+          'Version $_appVersion ($_appBuildNumber)\n\n'
+          'Mobile database utility for SQL Server, Oracle and PostgreSQL.\n\n'
+          'Use Settings to configure security defaults, query editor behavior, export preferences and local storage options.',
+    );
+  }
+
+  void _showPrivacyPolicy() {
+    _showAboutTextDialog(
+      title: 'Privacy policy',
+      icon: Icons.privacy_tip_outlined,
+      body:
+          'DBPilot stores saved connections, query history and app settings locally on this device.\n\n'
+          'Passwords and sensitive connection data are stored using the secure storage available on the platform.\n\n'
+          'DBPilot does not send your queries, credentials or database results to external AI services. The local SQL builder runs on the device.\n\n'
+          'When you connect to a database, connection data is sent only to the configured DBPilot backend required to execute that operation.',
+    );
+  }
+
+  void _showTerms() {
+    _showAboutTextDialog(
+      title: 'Terms',
+      icon: Icons.description_outlined,
+      body:
+          'Use DBPilot only with databases and credentials you are authorized to access.\n\n'
+          'Review generated or loaded SQL before running it, especially when Safe Mode is disabled.\n\n'
+          'You are responsible for the effects of executed SQL statements, including INSERT, UPDATE, DELETE, CREATE, ALTER and DROP commands.\n\n'
+          'DBPilot is provided as a database utility and should not replace database backups, access controls or operational review processes.',
+    );
+  }
+
+  void _showSupport() {
+    _showAboutTextDialog(
+      title: 'Contact / support',
+      icon: Icons.support_agent_rounded,
+      body:
+          'For support, send an email to:\n\n'
+          '$_supportEmail\n\n'
+          'Include the app version, provider, device type and a short description of the issue. You can use "Copy app info" from this screen to prepare the basic details.',
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await Clipboard.setData(const ClipboardData(text: _supportEmail));
+            if (!mounted) return;
+            Navigator.of(context).pop();
+            _showInfo('Support email copied.');
+          },
+          child: const Text('Copy email'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _copyAppInfo() async {
+    final info = [
+      'App: $_appName',
+      'Version: $_appVersion ($_appBuildNumber)',
+      'Connections: ${_connections.length}',
+      'Saved queries: ${_queries.length}',
+      'Default Safe Mode: ${_defaultSafeMode ? 'ON' : 'OFF'}',
+      'Default timeout: ${_defaultTimeout}s',
+      'Default row limit: $_defaultLimit',
+      'Editor theme: $_editorTheme',
+    ].join('\n');
+
+    await Clipboard.setData(ClipboardData(text: info));
+    _showInfo('App info copied.');
+  }
+
+  void _showLicenses() {
+    showLicensePage(
+      context: context,
+      applicationName: _appName,
+      applicationVersion: 'Version $_appVersion ($_appBuildNumber)',
+      applicationIcon: _aboutAppIcon(size: 48),
+    );
+  }
+
+  Widget _aboutAppIcon({required double size}) {
+    return Container(
+      width: size,
+      height: size,
+      padding: EdgeInsets.all(size * 0.14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B2A4A),
+        borderRadius: BorderRadius.circular(size * 0.28),
+        border: Border.all(color: const Color(0xFF2D8CFF).withOpacity(0.45)),
+      ),
+      child: Image.asset(AppAssets.appIcon, fit: BoxFit.contain),
+    );
+  }
+
+  void _showAboutTextDialog({
+    required String title,
+    required IconData icon,
+    required String body,
+    List<Widget> actions = const [],
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF2D8CFF)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(title)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: SelectableText(body),
+        ),
+        actions: [
+          ...actions,
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showInfo(String message) {
@@ -1489,6 +1858,304 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       bottomNavigationBar: _loading ? null : _buildBottomNav(),
+    );
+  }
+}
+
+class _PaywallScreen extends StatelessWidget {
+  const _PaywallScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF030817),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF030817),
+        title: const Text('Upgrade'),
+      ),
+      body: SafeArea(
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF071021), Color(0xFF030817)],
+            ),
+          ),
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 150),
+                  children: [
+                    _PaywallHero(theme: theme),
+                    const SizedBox(height: 22),
+                    _PlanCard(
+                      title: 'Pro',
+                      subtitle: 'For serious database work',
+                      icon: Icons.rocket_launch_rounded,
+                      featured: true,
+                      badge: 'PRO',
+                      features: const [
+                        _PlanFeature(Icons.all_inclusive_rounded, 'Unlimited connections', 'All 3 providers supported'),
+                        _PlanFeature(Icons.storage_rounded, 'Full query history', 'No limits'),
+                        _PlanFeature(Icons.description_rounded, 'Export in all formats', 'CSV, Excel, JSON and more'),
+                        _PlanFeature(Icons.mic_rounded, 'Voice command', 'Build SQL requests with your voice'),
+                        _PlanFeature(Icons.code_rounded, 'Advanced queries', 'SELECT, INSERT, UPDATE, DELETE, DDL and DML'),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _PlanCard(
+                      title: 'Free',
+                      subtitle: 'Try DBPilot with no commitment',
+                      icon: Icons.near_me_rounded,
+                      features: const [
+                        _PlanFeature(Icons.link_rounded, 'Up to 3 connections', '1 connection per provider'),
+                        _PlanFeature(Icons.history_rounded, 'Limited history', 'Last 10 queries'),
+                        _PlanFeature(Icons.description_rounded, 'Export to CSV only', 'Basic result sharing'),
+                        _PlanFeature(Icons.code_rounded, 'SELECT queries only', 'Ideal for safe quick tests'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              _PaywallActions(
+                onUpgrade: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Payments are not connected yet.')),
+                  );
+                },
+                onContinue: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaywallHero extends StatelessWidget {
+  const _PaywallHero({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(AppAssets.appIcon, width: 44, height: 44),
+            const SizedBox(width: 10),
+            const Text(
+              'DBPilot',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 0),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Unlock the full potential of DBPilot',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, height: 1.08, letterSpacing: 0),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Work without limits: more connections, more history, more export formats and full access to advanced queries.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withOpacity(0.72),
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.features,
+    this.featured = false,
+    this.badge,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<_PlanFeature> features;
+  final bool featured;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = featured ? const Color(0xFF2D8CFF) : Colors.white.withOpacity(0.16);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      decoration: BoxDecoration(
+        color: featured ? const Color(0xFF10133A).withOpacity(0.92) : const Color(0xFF111827).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor.withOpacity(featured ? 0.9 : 1)),
+        boxShadow: featured
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF8D4DFF).withOpacity(0.24),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        children: [
+          if (badge != null)
+            Align(
+              alignment: Alignment.topRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFFB53DFF)]),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
+                    const SizedBox(width: 6),
+                    Text(badge!, style: const TextStyle(fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+            ),
+          Icon(icon, color: featured ? const Color(0xFF2D8CFF) : const Color(0xFF7D73FF), size: 42),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 0)),
+          const SizedBox(height: 4),
+          Text(subtitle, style: TextStyle(color: featured ? const Color(0xFFB99CFF) : const Color(0xFFC2B8FF))),
+          const SizedBox(height: 18),
+          for (var i = 0; i < features.length; i++) ...[
+            if (i > 0) Divider(color: Colors.white.withOpacity(0.1), height: 18),
+            _PlanFeatureRow(feature: features[i], featured: featured),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanFeature {
+  const _PlanFeature(this.icon, this.title, this.subtitle);
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+}
+
+class _PlanFeatureRow extends StatelessWidget {
+  const _PlanFeatureRow({required this.feature, required this.featured});
+
+  final _PlanFeature feature;
+  final bool featured;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: featured ? const Color(0xFF092B4E) : const Color(0xFF1B2030),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(feature.icon, color: featured ? const Color(0xFF21B8FF) : const Color(0xFF8B7BFF), size: 24),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(feature.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0)),
+              const SizedBox(height: 3),
+              Text(feature.subtitle, style: TextStyle(color: Colors.white.withOpacity(0.72), height: 1.25)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaywallActions extends StatelessWidget {
+  const _PaywallActions({required this.onUpgrade, required this.onContinue});
+
+  final VoidCallback onUpgrade;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF030817).withOpacity(0.96),
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.08))),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF1EA7FF), Color(0xFFB536F5)]),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: FilledButton.icon(
+                onPressed: onUpgrade,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.workspace_premium_rounded),
+                label: const Text('Upgrade to Pro', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton(
+              onPressed: onContinue,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white.withOpacity(0.78),
+                side: BorderSide(color: Colors.white.withOpacity(0.24)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Continue with Free', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.shield_outlined, size: 14, color: Color(0xFFB38CFF)),
+              const SizedBox(width: 6),
+              Text('No credit card required. Upgrade anytime.', style: TextStyle(color: Colors.white.withOpacity(0.62), fontSize: 12)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

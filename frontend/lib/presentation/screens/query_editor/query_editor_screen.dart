@@ -36,6 +36,10 @@ class QueryEditorScreen extends StatefulWidget {
   final String? objectType;
   final String? schemaName;
 
+  static void clearSessionCache() {
+    _QueryEditorScreenState._sessionSnapshots.clear();
+  }
+
   @override
   State<QueryEditorScreen> createState() => _QueryEditorScreenState();
 }
