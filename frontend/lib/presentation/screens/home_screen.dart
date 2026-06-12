@@ -175,6 +175,26 @@ class _HomeScreenState extends State<HomeScreen> {
     return request.database;
   }
 
+  String _connectionDatabaseName(Map<String, dynamic> connection) {
+    final provider = _providerFromMap(connection);
+
+    if (provider == DatabaseProvider.oracle) {
+      final serviceName = connection['serviceName']?.toString().trim() ?? '';
+      final sid = connection['sid']?.toString().trim() ?? '';
+      final database = connection['database']?.toString().trim() ?? '';
+
+      if (serviceName.isNotEmpty) return serviceName;
+      if (sid.isNotEmpty) return sid;
+      if (database.isNotEmpty) return database;
+      return 'Oracle database';
+    }
+
+    final database = connection['database']?.toString().trim() ?? '';
+    if (database.isNotEmpty) return database;
+
+    return '${provider.label} database';
+  }
+
   Future<void> _openConnectionScreen({Map<String, dynamic>? initialData}) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -598,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _connectionCard(Map<String, dynamic> connection) {
     final id = _connectionId(connection);
     final isActive = id == _activeConnectionId;
-    final provider = _providerFromMap(connection);
+    final databaseName = _connectionDatabaseName(connection);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -619,8 +639,6 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              _providerIcon(provider, active: isActive),
-              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -637,7 +655,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      provider.label,
+                      databaseName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: isActive
                             ? const Color(0xFF5CF2A4)
@@ -1013,14 +1033,27 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _defaultSafeMode,
               onChanged: (value) => _updateBoolSetting('settings.defaultSafeMode', value, (v) => _defaultSafeMode = v),
               title: const Text('Safe Mode by default'),
-              subtitle: const Text('Only SELECT statements are allowed by default.'),
+              subtitle: const Text('Block non-SELECT queries by default.'),
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _confirmDangerousQueries,
-              onChanged: (value) => _updateBoolSetting('settings.confirmDangerousQueries', value, (v) => _confirmDangerousQueries = v),
-              title: const Text('Confirm dangerous queries'),
-              subtitle: const Text('Ask before INSERT, UPDATE, DELETE, DROP and similar commands.'),
+            Opacity(
+              opacity: _defaultSafeMode ? 0.55 : 1,
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _confirmDangerousQueries,
+                onChanged: _defaultSafeMode
+                    ? null
+                    : (value) => _updateBoolSetting(
+                          'settings.confirmDangerousQueries',
+                          value,
+                          (v) => _confirmDangerousQueries = v,
+                        ),
+                title: const Text('Confirm dangerous queries'),
+                subtitle: Text(
+                  _defaultSafeMode
+                      ? 'Safe Mode blocks these queries before confirmation is needed.'
+                      : 'Ask before running data-changing or schema-changing SQL.',
+                ),
+              ),
             ),
             Row(
               children: [
