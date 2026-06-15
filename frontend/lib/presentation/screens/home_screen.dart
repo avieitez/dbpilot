@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   DatabaseProvider? _expandedConnectionProvider;
   DatabaseProvider? _expandedQueryProvider;
+  final Set<String> _expandedQueryConnectionKeys = <String>{};
 
   bool _defaultSafeMode = true;
   bool _confirmDangerousQueries = true;
@@ -734,16 +735,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _queryCard(QueryHistoryItem query) {
-    final provider = DatabaseProviderX.fromString(query.provider);
     final preview = query.sql.replaceAll('\n', ' ');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       color: const Color(0xFF15181E),
       child: ListTile(
-        leading: _providerIcon(provider),
         title: Text(
-          query.connectionName,
+          _formatDateTime(query.executedAt),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w900),
@@ -751,8 +750,6 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
-            Text(_formatDateTime(query.executedAt)),
             const SizedBox(height: 4),
             Text(
               preview,
@@ -784,6 +781,100 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.more_vert_rounded),
         ),
         onTap: _connecting ? null : () => _openQuery(query),
+      ),
+    );
+  }
+
+  Map<String, List<QueryHistoryItem>> _groupQueriesByConnection(List<QueryHistoryItem> queries) {
+    final grouped = <String, List<QueryHistoryItem>>{};
+
+    for (final query in queries) {
+      final connectionName = query.connectionName.trim().isEmpty
+          ? 'Unnamed connection'
+          : query.connectionName.trim();
+      grouped.putIfAbsent(connectionName, () => <QueryHistoryItem>[]).add(query);
+    }
+
+    return grouped;
+  }
+
+  String _queryConnectionKey(DatabaseProvider provider, String connectionName) {
+    return '${provider.apiValue}|${connectionName.trim().toLowerCase()}';
+  }
+
+  Widget _queryConnectionSection({
+    required String connectionName,
+    required List<QueryHistoryItem> queries,
+    required bool expanded,
+    required VoidCallback onToggle,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF101827),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      connectionName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFEAF1FF),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      queries.length.toString(),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: const Icon(Icons.keyboard_arrow_down_rounded),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+                      child: Column(
+                        children: queries.map(_queryCard).toList(),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -913,6 +1004,7 @@ class _HomeScreenState extends State<HomeScreen> {
     List<QueryHistoryItem> queries,
   ) {
     final expanded = _expandedQueryProvider == provider;
+    final groupedByConnection = _groupQueriesByConnection(queries);
 
     return _buildProviderAccordion(
       provider: provider,
@@ -920,10 +1012,35 @@ class _HomeScreenState extends State<HomeScreen> {
       expanded: expanded,
       onToggle: () {
         setState(() {
-          _expandedQueryProvider = expanded ? null : provider;
+          if (expanded) {
+            _expandedQueryProvider = null;
+            _expandedQueryConnectionKeys.removeWhere(
+              (key) => key.startsWith('${provider.apiValue}|'),
+            );
+          } else {
+            _expandedQueryProvider = provider;
+          }
         });
       },
-      children: queries.map(_queryCard).toList(),
+      children: groupedByConnection.entries.map((entry) {
+        final key = _queryConnectionKey(provider, entry.key);
+        final connectionExpanded = _expandedQueryConnectionKeys.contains(key);
+
+        return _queryConnectionSection(
+          connectionName: entry.key,
+          queries: entry.value,
+          expanded: connectionExpanded,
+          onToggle: () {
+            setState(() {
+              if (connectionExpanded) {
+                _expandedQueryConnectionKeys.remove(key);
+              } else {
+                _expandedQueryConnectionKeys.add(key);
+              }
+            });
+          },
+        );
+      }).toList(),
     );
   }
 
@@ -1574,6 +1691,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _expandedConnectionProvider = null;
       _expandedQueryProvider = null;
+      _expandedQueryConnectionKeys.clear();
     });
     await _loadData();
     _showInfo('Local cache cleared.');
@@ -1749,7 +1867,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: () => setState(() {
           if (_selectedIndex != index) {
             if (index == 0) _expandedConnectionProvider = null;
-            if (index == 1) _expandedQueryProvider = null;
+            if (index == 1) {
+              _expandedQueryProvider = null;
+              _expandedQueryConnectionKeys.clear();
+            }
           }
           _selectedIndex = index;
         }),
