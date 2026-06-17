@@ -742,13 +742,16 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               Navigator.of(sheetContext).pop(sql);
             }
 
+            final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+            final resultMaxHeight = keyboardInset > 0 ? 130.0 : 220.0;
+
             return SafeArea(
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: EdgeInsets.only(
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                  bottom: keyboardInset + 16,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -766,7 +769,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'English only. Simple SELECT, COUNT, WHERE, ORDER BY and LIMIT requests are supported.',
+                      'English only. SELECT, INSERT, UPDATE, DELETE, WHERE, ORDER BY and LIMIT requests are supported.',
                       style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
                     ),
                     const SizedBox(height: 12),
@@ -777,7 +780,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
                       decoration: const InputDecoration(
-                        hintText: 'Example: show all records from table customers',
+                        hintText: 'Example: update table customers set status active where id equals 10',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -806,7 +809,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     if (generated != null) ...[
                       const SizedBox(height: 14),
                       Container(
-                        constraints: const BoxConstraints(maxHeight: 220),
+                        constraints: BoxConstraints(maxHeight: resultMaxHeight),
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -3144,12 +3147,39 @@ class _LocalSqlGenerator {
       );
     }
 
-    final columns = _extractColumns(normalized, table!);
+    final safeTable = table!;
+    final qualifiedTable = _qualifiedTable(provider, safeTable, fallbackSchema);
+    final command = _detectCommand(normalized);
+
+    switch (command) {
+      case 'insert':
+        return _generateInsert(normalized, provider, qualifiedTable);
+      case 'update':
+        return _generateUpdate(normalized, provider, qualifiedTable);
+      case 'delete':
+        return _generateDelete(normalized, qualifiedTable);
+      case 'select':
+      default:
+        return _generateSelect(
+          normalized: normalized,
+          provider: provider,
+          qualifiedTable: qualifiedTable,
+          table: safeTable,
+        );
+    }
+  }
+
+  static _LocalSqlBuildResult _generateSelect({
+    required String normalized,
+    required DatabaseProvider provider,
+    required String qualifiedTable,
+    required String table,
+  }) {
+    final columns = _extractColumns(normalized, table);
     final count = _hasAny(normalized, const ['count']);
     final where = _extractWhere(normalized);
     final orderBy = _extractOrderBy(normalized);
     final limit = _extractLimit(normalized);
-    final qualifiedTable = _qualifiedTable(provider, table, fallbackSchema);
     final selectList = count ? 'COUNT(*)' : (columns.isEmpty ? '*' : columns.join(', '));
     final buffer = StringBuffer();
 
@@ -3183,6 +3213,89 @@ class _LocalSqlGenerator {
     );
   }
 
+  static _LocalSqlBuildResult _generateInsert(String normalized, DatabaseProvider provider, String qualifiedTable) {
+    final values = _extractAssignments(normalized);
+    if (values.isEmpty) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'I need column values for INSERT. Try: "insert into table customers name John and age 30".',
+      );
+    }
+
+    final columns = values.keys.join(', ');
+    final sqlValues = values.values.map((value) => _sqlLiteral(value, provider)).join(', ');
+
+    return _LocalSqlBuildResult(
+      sql: 'INSERT INTO $qualifiedTable ($columns)\nVALUES ($sqlValues);',
+      message: 'Generated INSERT with the local rule-based SQL builder.',
+    );
+  }
+
+  static _LocalSqlBuildResult _generateUpdate(String normalized, DatabaseProvider provider, String qualifiedTable) {
+    final values = _extractAssignments(normalized);
+    if (values.isEmpty) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'I need values to update. Try: "update table customers set name John where id equals 1".',
+      );
+    }
+
+    final where = _extractWhere(normalized);
+    if (where == null && !_hasAny(normalized, const ['all', 'every'])) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'UPDATE needs a WHERE condition, or say "update all" if you really want every row.',
+      );
+    }
+
+    final setClause = values.entries
+        .map((entry) => '${entry.key} = ${_sqlLiteral(entry.value, provider)}')
+        .join(', ');
+    final buffer = StringBuffer()
+      ..writeln('UPDATE $qualifiedTable')
+      ..write('SET $setClause');
+
+    if (where != null) {
+      buffer
+        ..writeln()
+        ..write('WHERE ${where.toSql()}');
+    }
+
+    return _LocalSqlBuildResult(
+      sql: '${buffer.toString()};',
+      message: 'Generated UPDATE with the local rule-based SQL builder.',
+    );
+  }
+
+  static _LocalSqlBuildResult _generateDelete(String normalized, String qualifiedTable) {
+    final where = _extractWhere(normalized);
+    if (where == null && !_hasAny(normalized, const ['all', 'every'])) {
+      return const _LocalSqlBuildResult(
+        sql: null,
+        message: 'DELETE needs a WHERE condition, or say "delete all" if you really want every row.',
+      );
+    }
+
+    final buffer = StringBuffer()..write('DELETE FROM $qualifiedTable');
+    if (where != null) {
+      buffer
+        ..writeln()
+        ..write('WHERE ${where.toSql()}');
+    }
+
+    return _LocalSqlBuildResult(
+      sql: '${buffer.toString()};',
+      message: 'Generated DELETE with the local rule-based SQL builder.',
+    );
+  }
+
+  static String _detectCommand(String value) {
+    if (_hasAny(value, const ['insert', 'add', 'create row', 'new row'])) return 'insert';
+    if (_hasAny(value, const ['update', 'change', 'modify', 'set'])) return 'update';
+    if (_hasAny(value, const ['delete', 'remove'])) return 'delete';
+    return 'select';
+  }
+
   static String _normalize(String value) {
     return value
         .toLowerCase()
@@ -3206,6 +3319,16 @@ class _LocalSqlGenerator {
       'order',
       'limit',
       'count',
+      'insert',
+      'add',
+      'update',
+      'change',
+      'modify',
+      'delete',
+      'remove',
+      'set',
+      'values',
+      'into',
     ]);
 
     return englishHits > 0;
@@ -3223,6 +3346,9 @@ class _LocalSqlGenerator {
     final patterns = [
       RegExp(r'\btable\s+([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
       RegExp(r'\bfrom\s+(?:table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\binto\s+(?:table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\bupdate\s+(?:table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
+      RegExp(r'\bdelete\s+from\s+(?:table\s+)?([a-zA-Z_][a-zA-Z0-9_.$]*)\b'),
     ];
 
     for (final pattern in patterns) {
@@ -3258,20 +3384,72 @@ class _LocalSqlGenerator {
     return columns;
   }
 
+  static Map<String, String> _extractAssignments(String value) {
+    var segment = '';
+    final patterns = [
+      RegExp(r'\bset\s+(.+?)(?:\s+where\b|$)'),
+      RegExp(r'\bvalues?\s+(.+?)(?:\s+where\b|$)'),
+      RegExp(r'\bwith\s+(.+?)(?:\s+where\b|$)'),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(value);
+      final raw = match?.group(1)?.trim() ?? '';
+      if (raw.isNotEmpty) {
+        segment = raw;
+        break;
+      }
+    }
+
+    if (segment.isEmpty) {
+      final tableMatch = RegExp(r'\b(?:into|table|update)\s+(?:table\s+)?[a-zA-Z_][a-zA-Z0-9_.$]*\s+(.+?)(?:\s+where\b|$)').firstMatch(value);
+      segment = tableMatch?.group(1)?.trim() ?? '';
+    }
+
+    if (segment.isEmpty) return const {};
+
+    final result = <String, String>{};
+    final parts = segment
+        .split(RegExp(r'\s*,\s*|\s+and\s+'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty);
+
+    for (final part in parts) {
+      final match = RegExp(
+        r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|:|to|as|equals|equal(?:\s+to)?|is)?\s+(.+)$',
+      ).firstMatch(part);
+
+      final column = match?.group(1)?.trim();
+      var rawValue = match?.group(2)?.trim();
+      if (!_isSafeIdentifier(column) || rawValue == null || rawValue.isEmpty) continue;
+
+      rawValue = rawValue.replaceAll(RegExp(r'^(to|as|equals|equal(?:\s+to)?|is)\s+'), '').trim();
+      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
+
+      result[column!] = rawValue;
+    }
+
+    return result;
+  }
+
   static _LocalSqlCondition? _extractWhere(String value) {
     final whereMatch = RegExp(r'\bwhere\s+(.+?)(?:\s+(?:order|limit)\b|$)').firstMatch(value);
     final segment = whereMatch?.group(1);
     if (segment == null) return null;
+    final normalizedSegment = segment
+        .replaceAll(RegExp(r'\bi\s+d\b'), 'id')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
 
     final conditionPatterns = <({RegExp regex, String comparison})>[
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+less\s+than\s+(.+)$'), comparison: '<'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal\s+to|is)\s+(.+)$'), comparison: '='),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal(?:\s+to)?|is)\s+(.+)$'), comparison: '='),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'), comparison: ''),
     ];
 
     for (final item in conditionPatterns) {
-      final match = item.regex.firstMatch(segment);
+      final match = item.regex.firstMatch(normalizedSegment);
       if (match == null) continue;
 
       final column = match.group(1)?.trim();
@@ -3283,6 +3461,15 @@ class _LocalSqlGenerator {
       }
 
       return _LocalSqlCondition(column: column!, comparison: comparison, value: conditionValue);
+    }
+
+    final spokenMatch = RegExp(
+      r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(.+)$',
+    ).firstMatch(normalizedSegment);
+    final spokenColumn = spokenMatch?.group(1)?.trim();
+    final spokenValue = spokenMatch?.group(2)?.trim();
+    if (_isSafeIdentifier(spokenColumn) && spokenValue != null && spokenValue.isNotEmpty) {
+      return _LocalSqlCondition(column: spokenColumn!, comparison: '=', value: spokenValue);
     }
 
     return null;
@@ -3305,6 +3492,25 @@ class _LocalSqlGenerator {
     final parsed = int.tryParse(match?.group(1) ?? '');
     if (parsed == null) return null;
     return parsed.clamp(1, 5000).toInt();
+  }
+
+  static String _sqlLiteral(String value, DatabaseProvider provider) {
+    final cleanValue = value.trim().replaceAll(RegExp(r"""^['"]|['"]$"""), '');
+    if (cleanValue == 'null') return 'NULL';
+    if (cleanValue == 'true') {
+      return provider == DatabaseProvider.postgresql ? 'TRUE' : '1';
+    }
+    if (cleanValue == 'false') {
+      return provider == DatabaseProvider.postgresql ? 'FALSE' : '0';
+    }
+
+    final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
+    if (numeric != null) return numeric.toString();
+    final wordNumber = _englishNumberWords[cleanValue];
+    if (wordNumber != null) return wordNumber.toString();
+
+    final escaped = cleanValue.replaceAll("'", "''");
+    return "'$escaped'";
   }
 
   static String _qualifiedTable(DatabaseProvider provider, String table, String? schema) {
@@ -3349,6 +3555,38 @@ class _LocalSqlGenerator {
     'records',
     'rows',
   };
+
+  static const Set<String> _reservedAssignmentWords = {
+    'where',
+    'order',
+    'limit',
+    'from',
+    'table',
+  };
+
+  static const Map<String, int> _englishNumberWords = {
+    'zero': 0,
+    'one': 1,
+    'two': 2,
+    'three': 3,
+    'four': 4,
+    'five': 5,
+    'six': 6,
+    'seven': 7,
+    'eight': 8,
+    'nine': 9,
+    'ten': 10,
+    'eleven': 11,
+    'twelve': 12,
+    'thirteen': 13,
+    'fourteen': 14,
+    'fifteen': 15,
+    'sixteen': 16,
+    'seventeen': 17,
+    'eighteen': 18,
+    'nineteen': 19,
+    'twenty': 20,
+  };
 }
 
 class _LocalSqlCondition {
@@ -3366,6 +3604,8 @@ class _LocalSqlCondition {
     final cleanValue = value.trim();
     final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
     if (numeric != null) return '$column $comparison ${numeric.toString()}';
+    final wordNumber = _LocalSqlGenerator._englishNumberWords[cleanValue];
+    if (wordNumber != null) return '$column $comparison $wordNumber';
 
     final normalized = cleanValue.replaceAll(RegExp(r'^(es|is)\s+'), '').trim();
     final escaped = normalized.replaceAll("'", "''");

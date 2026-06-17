@@ -55,7 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   DatabaseProvider? _expandedConnectionProvider;
   DatabaseProvider? _expandedQueryProvider;
-  final Set<String> _expandedQueryConnectionKeys = <String>{};
+  String? _expandedQueryConnectionKey;
 
   bool _defaultSafeMode = true;
   bool _confirmDangerousQueries = true;
@@ -1014,17 +1014,16 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           if (expanded) {
             _expandedQueryProvider = null;
-            _expandedQueryConnectionKeys.removeWhere(
-              (key) => key.startsWith('${provider.apiValue}|'),
-            );
+            _expandedQueryConnectionKey = null;
           } else {
             _expandedQueryProvider = provider;
+            _expandedQueryConnectionKey = null;
           }
         });
       },
       children: groupedByConnection.entries.map((entry) {
         final key = _queryConnectionKey(provider, entry.key);
-        final connectionExpanded = _expandedQueryConnectionKeys.contains(key);
+        final connectionExpanded = _expandedQueryConnectionKey == key;
 
         return _queryConnectionSection(
           connectionName: entry.key,
@@ -1033,9 +1032,9 @@ class _HomeScreenState extends State<HomeScreen> {
           onToggle: () {
             setState(() {
               if (connectionExpanded) {
-                _expandedQueryConnectionKeys.remove(key);
+                _expandedQueryConnectionKey = null;
               } else {
-                _expandedQueryConnectionKeys.add(key);
+                _expandedQueryConnectionKey = key;
               }
             });
           },
@@ -1691,7 +1690,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _expandedConnectionProvider = null;
       _expandedQueryProvider = null;
-      _expandedQueryConnectionKeys.clear();
+      _expandedQueryConnectionKey = null;
     });
     await _loadData();
     _showInfo('Local cache cleared.');
@@ -1869,7 +1868,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (index == 0) _expandedConnectionProvider = null;
             if (index == 1) {
               _expandedQueryProvider = null;
-              _expandedQueryConnectionKeys.clear();
+              _expandedQueryConnectionKey = null;
             }
           }
           _selectedIndex = index;
