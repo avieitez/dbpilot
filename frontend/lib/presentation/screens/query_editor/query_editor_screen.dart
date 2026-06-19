@@ -925,7 +925,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   void _clearEditor() {
     _sqlController.clear();
     _addMessage(QeStrings.editorCleared);
-    _editorFocusNode.requestFocus();
+    _editorFocusNode.unfocus();
+    FocusScope.of(context).unfocus();
   }
 
   void _loadHistory(_HistoryEntry entry) {
@@ -975,17 +976,14 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       child: Scaffold(
         resizeToAvoidBottomInset: false,
         appBar: AppBar(
-        titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${widget.providerLabel} · Query Editor', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-            Text(widget.connectionSummary.replaceAll('\n', ' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
-          ],
-        ),
-        actions: [
-          IconButton(onPressed: _clearEditor, icon: const Icon(Icons.delete_sweep_rounded), tooltip: AppStrings.clear),
-        ],
+          titleSpacing: 0,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${widget.providerLabel} · Query Editor', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              Text(widget.connectionSummary.replaceAll('\n', ' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+            ],
+          ),
         ),
         body: SafeArea(
           child: Column(
@@ -1038,6 +1036,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       providerLabel: widget.providerLabel,
                       objectName: widget.objectName,
                       schemaName: widget.schemaName,
+                      onClear: _clearEditor,
                     ),
                     Expanded(
                       child: Row(
@@ -2225,11 +2224,13 @@ class _EditorHeader extends StatelessWidget {
     required this.providerLabel,
     required this.objectName,
     required this.schemaName,
+    required this.onClear,
   });
 
   final String providerLabel;
   final String? objectName;
   final String? schemaName;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -2265,6 +2266,17 @@ class _EditorHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          Tooltip(
+            message: AppStrings.clear,
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+              onPressed: onClear,
+              icon: Icon(Icons.delete_sweep_rounded, size: 19, color: colors.onSurfaceVariant),
+            ),
+          ),
+          const SizedBox(width: 6),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
