@@ -272,6 +272,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _executing = true;
       _allowPopAfterPendingSaveAttempt = false;
       _errorMessage = null;
+      _result = null;
+      _lastDuration = null;
+      _resultsPage = 0;
       _selectedTab = 1;
     });
 
@@ -570,89 +573,93 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Future<void> _showLoadQueryDialog() async {
-  final queries = await _historyService.getQueries(
-    provider: widget.connection.provider.apiValue,
-  );
+    final providerQueries = await _historyService.getQueries(
+      provider: widget.connection.provider.apiValue,
+    );
+    final currentConnectionName = widget.connection.name.trim().toLowerCase();
+    final queries = providerQueries
+        .where((query) => query.connectionName.trim().toLowerCase() == currentConnectionName)
+        .toList();
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  if (queries.isEmpty) {
-    _addMessage('No saved queries found.');
-    return;
-  }
+    if (queries.isEmpty) {
+      _addMessage('No saved queries found for ${widget.connection.name}.');
+      return;
+    }
 
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (context) {
-      return SafeArea(
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.75,
-          child: ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: queries.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final item = queries[index];
-              final preview = item.sql.replaceAll('\n', ' ');
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.75,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: queries.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = queries[index];
+                final preview = item.sql.replaceAll('\n', ' ');
 
-              return ListTile(
-                leading: const Icon(Icons.history_rounded),
-                title: Text(
-                  item.connectionName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    Text(
-                      item.executedAt.toString(),
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      preview,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  onPressed: () async {
-                    await _historyService.deleteQuery(item.id);
+                return ListTile(
+                  leading: const Icon(Icons.history_rounded),
+                  title: Text(
+                    item.connectionName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(
+                        item.executedAt.toString(),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        preview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    onPressed: () async {
+                      await _historyService.deleteQuery(item.id);
 
-                    if (!context.mounted) return;
+                      if (!context.mounted) return;
+
+                      Navigator.pop(context);
+
+                      _addMessage('Query deleted.');
+
+                      await _showLoadQueryDialog();
+                    },
+                  ),
+                  isThreeLine: true,
+                  onTap: () {
+                    _sqlController.text = item.sql;
 
                     Navigator.pop(context);
 
-                    _addMessage('Query deleted.');
+                    setState(() {
+                      _selectedTab = 0;
+                    });
 
-                    await _showLoadQueryDialog();
+                    _addMessage('Query loaded.');
                   },
-                ),
-                isThreeLine: true,
-                onTap: () {
-                  _sqlController.text = item.sql;
-
-                  Navigator.pop(context);
-
-                  setState(() {
-                    _selectedTab = 0;
-                  });
-
-                  _addMessage('Query loaded.');
-                },
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Future<void> _showSqlBuilderSheet() async {
     final promptController = TextEditingController();
@@ -1256,6 +1263,13 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildResults(ThemeData theme, ColorScheme colors) {
+    if (_executing) {
+      return const _EmptyPanel(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Running query',
+        message: 'Waiting for the database response...',
+      );
+    }
     if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
     final result = _result;
     if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
@@ -3297,7 +3311,7 @@ class _LocalSqlGenerator {
   }
 
   static String _normalize(String value) {
-    return value
+    return _stripDiacritics(value)
         .toLowerCase()
         .replaceAll(RegExp(r'[¿?¡!,;]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -3396,7 +3410,7 @@ class _LocalSqlGenerator {
       final match = pattern.firstMatch(value);
       final raw = match?.group(1)?.trim() ?? '';
       if (raw.isNotEmpty) {
-        segment = raw;
+        segment = raw.replaceFirst(RegExp(r'^where\s+'), '').trim();
         break;
       }
     }
@@ -3423,7 +3437,7 @@ class _LocalSqlGenerator {
       var rawValue = match?.group(2)?.trim();
       if (!_isSafeIdentifier(column) || rawValue == null || rawValue.isEmpty) continue;
 
-      rawValue = rawValue.replaceAll(RegExp(r'^(to|as|equals|equal(?:\s+to)?|is)\s+'), '').trim();
+      rawValue = rawValue.replaceAll(RegExp(r'^(to|as|equals|equal(?:\s+to)?|is|where)\s+'), '').trim();
       if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
 
       result[column!] = rawValue;
@@ -3433,9 +3447,11 @@ class _LocalSqlGenerator {
   }
 
   static _LocalSqlCondition? _extractWhere(String value) {
-    final whereMatch = RegExp(r'\bwhere\s+(.+?)(?:\s+(?:order|limit)\b|$)').firstMatch(value);
-    final segment = whereMatch?.group(1);
-    if (segment == null) return null;
+    final whereIndex = value.lastIndexOf(RegExp(r'\bwhere\b'));
+    if (whereIndex < 0) return null;
+    final afterWhere = value.substring(whereIndex).replaceFirst(RegExp(r'^where\s+'), '');
+    final segment = afterWhere.split(RegExp(r'\s+(?:order|limit)\b')).first.trim();
+    if (segment.isEmpty) return null;
     final normalizedSegment = segment
         .replaceAll(RegExp(r'\bi\s+d\b'), 'id')
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -3444,6 +3460,7 @@ class _LocalSqlGenerator {
     final conditionPatterns = <({RegExp regex, String comparison})>[
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+less\s+than\s+(.+)$'), comparison: '<'),
+      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:like|contains|containing)\s+(.+)$'), comparison: 'LIKE'),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal(?:\s+to)?|is)\s+(.+)$'), comparison: '='),
       (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'), comparison: ''),
     ];
@@ -3550,6 +3567,41 @@ class _LocalSqlGenerator {
     return value.replaceAll('"', '""').trim();
   }
 
+  static String _stripDiacritics(String value) {
+    const replacements = {
+      'á': 'a',
+      'à': 'a',
+      'ä': 'a',
+      'â': 'a',
+      'é': 'e',
+      'è': 'e',
+      'ë': 'e',
+      'ê': 'e',
+      'í': 'i',
+      'ì': 'i',
+      'ï': 'i',
+      'î': 'i',
+      'ó': 'o',
+      'ò': 'o',
+      'ö': 'o',
+      'ô': 'o',
+      'ú': 'u',
+      'ù': 'u',
+      'ü': 'u',
+      'û': 'u',
+      'ñ': 'n',
+      'ç': 'c',
+    };
+
+    var normalized = value;
+    replacements.forEach((from, to) {
+      normalized = normalized
+          .replaceAll(from, to)
+          .replaceAll(from.toUpperCase(), to.toUpperCase());
+    });
+    return normalized;
+  }
+
   static const Set<String> _reservedTableWords = {
     'table',
     'records',
@@ -3602,6 +3654,12 @@ class _LocalSqlCondition {
 
   String toSql() {
     final cleanValue = value.trim();
+    if (comparison == 'LIKE') {
+      final normalized = cleanValue.replaceAll(RegExp(r'^(like|contains|containing)\s+'), '').trim();
+      final escaped = normalized.replaceAll("'", "''");
+      return "$column LIKE '%$escaped%'";
+    }
+
     final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
     if (numeric != null) return '$column $comparison ${numeric.toString()}';
     final wordNumber = _LocalSqlGenerator._englishNumberWords[cleanValue];
