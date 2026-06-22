@@ -26,6 +26,7 @@ class QueryEditorScreen extends StatefulWidget {
     this.objectName,
     this.objectType,
     this.schemaName,
+    this.objectColumns = const [],
   });
 
   final ConnectionRequest connection;
@@ -35,6 +36,7 @@ class QueryEditorScreen extends StatefulWidget {
   final String? objectName;
   final String? objectType;
   final String? schemaName;
+  final List<String> objectColumns;
 
   static void clearSessionCache() {
     _QueryEditorScreenState._sessionSnapshots.clear();
@@ -732,8 +734,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               final result = _LocalSqlGenerator.generate(
                 prompt: prompt,
                 provider: widget.connection.provider,
-                fallbackTable: widget.objectName,
-                fallbackSchema: widget.schemaName,
+                context: _LocalSqlContext(
+                  fallbackTable: widget.objectName,
+                  fallbackSchema: widget.schemaName,
+                  columnNames: widget.objectColumns,
+                ),
               );
 
               setSheetState(() {
@@ -1128,7 +1133,23 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Widget _buildQuickKeys(ColorScheme colors) {
-    const keys = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'AND', 'OR', 'GROUP BY', 'ORDER BY'];
+    final keys = <String>[
+      'SELECT',
+      'FROM',
+      'WHERE',
+      'JOIN',
+      'AND',
+      'OR',
+      'GROUP BY',
+      'ORDER BY',
+      if (widget.connection.provider == DatabaseProvider.sqlServer) 'TOP'
+      else 'LIMIT',
+      'INSERT',
+      'UPDATE',
+      'DELETE',
+      ...widget.objectColumns.take(6),
+    ];
+
     return SizedBox(
       height: 46,
       child: ListView.separated(
@@ -1149,21 +1170,24 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               letterSpacing: 0,
             ),
             label: Text(value),
-            onPressed: () {
-              final text = _sqlController.text;
-              final selection = _sqlController.selection;
-              final insertAt = selection.start >= 0 ? selection.start : text.length;
-              final next = text.replaceRange(insertAt, insertAt, '$value ');
-              _sqlController.value = TextEditingValue(
-                text: next,
-                selection: TextSelection.collapsed(offset: insertAt + value.length + 1),
-              );
-              _editorFocusNode.requestFocus();
-            },
+            onPressed: () => _insertEditorSnippet('$value '),
           );
         },
       ),
     );
+  }
+
+  void _insertEditorSnippet(String snippet) {
+    final text = _sqlController.text;
+    final selection = _sqlController.selection;
+    final start = selection.start >= 0 ? selection.start : text.length;
+    final end = selection.end >= 0 ? selection.end : start;
+    final next = text.replaceRange(start, end, snippet);
+    _sqlController.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start + snippet.length),
+    );
+    _editorFocusNode.requestFocus();
   }
 
   int _lineCount(String text) => ('\n'.allMatches(text).length + 1).clamp(1, 9999).toInt();
@@ -3148,14 +3172,59 @@ class _LocalSqlBuildResult {
   final String message;
 }
 
+class _LocalSqlContext {
+  const _LocalSqlContext({
+    required this.fallbackTable,
+    required this.fallbackSchema,
+    required this.columnNames,
+  });
+
+  final String? fallbackTable;
+  final String? fallbackSchema;
+  final List<String> columnNames;
+
+  String? resolveColumn(String? value) {
+    final normalized = _normalizeIdentifier(value);
+    if (normalized.isEmpty) return null;
+
+    for (final column in columnNames) {
+      if (_normalizeIdentifier(column) == normalized) return column;
+    }
+
+    for (final column in columnNames) {
+      final candidate = _normalizeIdentifier(column);
+      if (candidate.contains(normalized) || normalized.contains(candidate)) return column;
+    }
+
+    return null;
+  }
+
+  String formatColumn(DatabaseProvider provider, String column) {
+    final resolved = resolveColumn(column) ?? column;
+    switch (provider) {
+      case DatabaseProvider.sqlServer:
+        return '[${resolved.replaceAll('[', '').replaceAll(']', '').trim()}]';
+      case DatabaseProvider.postgresql:
+      case DatabaseProvider.oracle:
+        return '"${resolved.replaceAll('"', '""').trim()}"';
+    }
+  }
+
+  static String _normalizeIdentifier(String? value) {
+    if (value == null) return '';
+    return _LocalSqlGenerator._stripDiacritics(value)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '');
+  }
+}
+
 class _LocalSqlGenerator {
   const _LocalSqlGenerator._();
 
   static _LocalSqlBuildResult generate({
     required String prompt,
     required DatabaseProvider provider,
-    String? fallbackTable,
-    String? fallbackSchema,
+    required _LocalSqlContext context,
   }) {
     final normalized = _normalize(prompt);
     if (!_isEnglishRequest(normalized)) {
@@ -3165,7 +3234,7 @@ class _LocalSqlGenerator {
       );
     }
 
-    final table = _extractTable(normalized) ?? fallbackTable;
+    final table = _extractTable(normalized) ?? context.fallbackTable;
     if (!_isSafeIdentifierPath(table)) {
       return const _LocalSqlBuildResult(
         sql: null,
@@ -3174,16 +3243,16 @@ class _LocalSqlGenerator {
     }
 
     final safeTable = table!;
-    final qualifiedTable = _qualifiedTable(provider, safeTable, fallbackSchema);
+    final qualifiedTable = _qualifiedTable(provider, safeTable, context.fallbackSchema);
     final command = _detectCommand(normalized);
 
     switch (command) {
       case 'insert':
-        return _generateInsert(normalized, provider, qualifiedTable);
+        return _generateInsert(normalized, provider, qualifiedTable, context);
       case 'update':
-        return _generateUpdate(normalized, provider, qualifiedTable);
+        return _generateUpdate(normalized, provider, qualifiedTable, context);
       case 'delete':
-        return _generateDelete(normalized, qualifiedTable);
+        return _generateDelete(normalized, provider, qualifiedTable, context);
       case 'select':
       default:
         return _generateSelect(
@@ -3191,6 +3260,7 @@ class _LocalSqlGenerator {
           provider: provider,
           qualifiedTable: qualifiedTable,
           table: safeTable,
+          context: context,
         );
     }
   }
@@ -3200,11 +3270,12 @@ class _LocalSqlGenerator {
     required DatabaseProvider provider,
     required String qualifiedTable,
     required String table,
+    required _LocalSqlContext context,
   }) {
-    final columns = _extractColumns(normalized, table);
+    final columns = _extractColumns(normalized, table, provider, context);
     final count = _hasAny(normalized, const ['count']);
     final where = _extractWhere(normalized);
-    final orderBy = _extractOrderBy(normalized);
+    final orderBy = _extractOrderBy(normalized, provider, context);
     final limit = _extractLimit(normalized);
     final selectList = count ? 'COUNT(*)' : (columns.isEmpty ? '*' : columns.join(', '));
     final buffer = StringBuffer();
@@ -3218,7 +3289,7 @@ class _LocalSqlGenerator {
     buffer.writeln('FROM $qualifiedTable');
 
     if (where != null) {
-      buffer.writeln('WHERE ${where.toSql()}');
+      buffer.writeln('WHERE ${where.toSql(provider, context)}');
     }
 
     if (orderBy != null) {
@@ -3239,8 +3310,8 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateInsert(String normalized, DatabaseProvider provider, String qualifiedTable) {
-    final values = _extractAssignments(normalized);
+  static _LocalSqlBuildResult _generateInsert(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
+    final values = _extractAssignments(normalized, provider, context);
     if (values.isEmpty) {
       return const _LocalSqlBuildResult(
         sql: null,
@@ -3257,8 +3328,8 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateUpdate(String normalized, DatabaseProvider provider, String qualifiedTable) {
-    final values = _extractAssignments(normalized);
+  static _LocalSqlBuildResult _generateUpdate(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
+    final values = _extractAssignments(normalized, provider, context);
     if (values.isEmpty) {
       return const _LocalSqlBuildResult(
         sql: null,
@@ -3284,7 +3355,7 @@ class _LocalSqlGenerator {
     if (where != null) {
       buffer
         ..writeln()
-        ..write('WHERE ${where.toSql()}');
+        ..write('WHERE ${where.toSql(provider, context)}');
     }
 
     return _LocalSqlBuildResult(
@@ -3293,7 +3364,7 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateDelete(String normalized, String qualifiedTable) {
+  static _LocalSqlBuildResult _generateDelete(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
     final where = _extractWhere(normalized);
     if (where == null && !_hasAny(normalized, const ['all', 'every'])) {
       return const _LocalSqlBuildResult(
@@ -3306,7 +3377,7 @@ class _LocalSqlGenerator {
     if (where != null) {
       buffer
         ..writeln()
-        ..write('WHERE ${where.toSql()}');
+        ..write('WHERE ${where.toSql(provider, context)}');
     }
 
     return _LocalSqlBuildResult(
@@ -3335,6 +3406,8 @@ class _LocalSqlGenerator {
       'select',
       'show',
       'get',
+      'find',
+      'list',
       'need',
       'want',
       'rows',
@@ -3355,6 +3428,10 @@ class _LocalSqlGenerator {
       'set',
       'values',
       'into',
+      'with',
+      'equals',
+      'contains',
+      'like',
     ]);
 
     return englishHits > 0;
@@ -3388,29 +3465,40 @@ class _LocalSqlGenerator {
     return null;
   }
 
-  static List<String> _extractColumns(String value, String table) {
+  static List<String> _extractColumns(String value, String table, DatabaseProvider provider, _LocalSqlContext context) {
     if (_hasAny(value, const ['all', 'records', 'rows'])) {
       return const [];
     }
 
-    final match = RegExp(
-      r'\b(?:fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:from|where|order|limit)\b|$)',
-    ).firstMatch(value);
+    final matches = [
+      RegExp(r'\b(?:fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:from|where|order|limit)\b|$)').firstMatch(value),
+      RegExp(r'\b(?:select|show|get)\s+(.+?)\s+(?:from|of|in)\b').firstMatch(value),
+    ];
 
-    final raw = match?.group(1);
+    String? raw;
+    for (final match in matches) {
+      final candidate = match?.group(1)?.trim();
+      if (candidate != null && candidate.isNotEmpty) {
+        raw = candidate;
+        break;
+      }
+    }
     if (raw == null) return const [];
+    if (_hasAny(raw, const ['all', 'table', 'records', 'rows'])) return const [];
 
     final columns = raw
         .split(RegExp(r'\s*,\s*|\s+and\s+'))
         .map((item) => item.trim())
+        .map((item) => context.resolveColumn(item) ?? item)
         .where(_isSafeIdentifier)
         .where((item) => item != table)
+        .map((item) => context.formatColumn(provider, item))
         .toList();
 
     return columns;
   }
 
-  static Map<String, String> _extractAssignments(String value) {
+  static Map<String, String> _extractAssignments(String value, DatabaseProvider provider, _LocalSqlContext context) {
     var segment = '';
     final patterns = [
       RegExp(r'\bset\s+(.+?)(?:\s+where\b|$)'),
@@ -3434,6 +3522,9 @@ class _LocalSqlGenerator {
 
     if (segment.isEmpty) return const {};
 
+    final contextAssignments = _extractContextAssignments(segment, provider, context);
+    if (contextAssignments.isNotEmpty) return contextAssignments;
+
     final result = <String, String>{};
     final parts = segment
         .split(RegExp(r'\s*,\s*|\s+and\s+'))
@@ -3447,20 +3538,60 @@ class _LocalSqlGenerator {
 
       final column = match?.group(1)?.trim();
       var rawValue = match?.group(2)?.trim();
-      if (!_isSafeIdentifier(column) || rawValue == null || rawValue.isEmpty) continue;
+      final resolvedColumn = context.resolveColumn(column) ?? column;
+      if (!_isSafeIdentifier(resolvedColumn) || rawValue == null || rawValue.isEmpty) continue;
 
       rawValue = rawValue.replaceAll(RegExp(r'^(to|as|equals|equal(?:\s+to)?|is|where)\s+'), '').trim();
       if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
 
-      result[column!] = rawValue;
+      result[context.formatColumn(provider, resolvedColumn!)] = rawValue;
+    }
+
+    return result;
+  }
+
+  static Map<String, String> _extractContextAssignments(String segment, DatabaseProvider provider, _LocalSqlContext context) {
+    if (context.columnNames.isEmpty) return const {};
+
+    final matches = <({int start, int end, String column})>[];
+    for (final column in context.columnNames) {
+      final columnWords = _stripDiacritics(column)
+          .toLowerCase()
+          .split(RegExp(r'[^a-z0-9]+'))
+          .where((part) => part.isNotEmpty)
+          .toList();
+      if (columnWords.isEmpty) continue;
+
+      final pattern = RegExp('\\b${columnWords.map(RegExp.escape).join(r'[_\s]*')}\\b');
+      for (final match in pattern.allMatches(segment)) {
+        matches.add((start: match.start, end: match.end, column: column));
+      }
+    }
+
+    matches.sort((a, b) => a.start.compareTo(b.start));
+    if (matches.isEmpty) return const {};
+
+    final result = <String, String>{};
+    for (var i = 0; i < matches.length; i++) {
+      final current = matches[i];
+      final nextStart = i + 1 < matches.length ? matches[i + 1].start : segment.length;
+      var rawValue = segment.substring(current.end, nextStart).trim();
+      rawValue = rawValue
+          .replaceAll(RegExp(r'^(=|:|to|as|equals|equal(?:\s+to)?|is)\s*'), '')
+          .replaceAll(RegExp(r'\s+(and|with)$'), '')
+          .trim();
+
+      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
+      result[context.formatColumn(provider, current.column)] = rawValue;
     }
 
     return result;
   }
 
   static _LocalSqlCondition? _extractWhere(String value) {
-    final whereIndex = value.lastIndexOf(RegExp(r'\bwhere\b'));
-    if (whereIndex < 0) return null;
+    final whereMatches = RegExp(r'\bwhere\b').allMatches(value).toList();
+    if (whereMatches.isEmpty) return null;
+    final whereIndex = whereMatches.last.start;
     final afterWhere = value.substring(whereIndex).replaceFirst(RegExp(r'^where\s+'), '');
     final segment = afterWhere.split(RegExp(r'\s+(?:order|limit)\b')).first.trim();
     if (segment.isEmpty) return null;
@@ -3504,14 +3635,14 @@ class _LocalSqlGenerator {
     return null;
   }
 
-  static _LocalSqlOrder? _extractOrderBy(String value) {
+  static _LocalSqlOrder? _extractOrderBy(String value, DatabaseProvider provider, _LocalSqlContext context) {
     final match = RegExp(r'\border\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascending|descending))?').firstMatch(value);
-    final column = match?.group(1);
+    final column = context.resolveColumn(match?.group(1)) ?? match?.group(1);
     if (!_isSafeIdentifier(column)) return null;
 
     final direction = match?.group(2) ?? '';
     return _LocalSqlOrder(
-      column: column!,
+      column: context.formatColumn(provider, column!),
       descending: direction == 'desc' || direction == 'descending',
     );
   }
@@ -3664,22 +3795,23 @@ class _LocalSqlCondition {
   final String comparison;
   final String value;
 
-  String toSql() {
+  String toSql(DatabaseProvider provider, _LocalSqlContext context) {
+    final formattedColumn = context.formatColumn(provider, column);
     final cleanValue = value.trim();
     if (comparison == 'LIKE') {
       final normalized = cleanValue.replaceAll(RegExp(r'^(like|contains|containing)\s+'), '').trim();
       final escaped = normalized.replaceAll("'", "''");
-      return "$column LIKE '%$escaped%'";
+      return "$formattedColumn LIKE '%$escaped%'";
     }
 
     final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
-    if (numeric != null) return '$column $comparison ${numeric.toString()}';
+    if (numeric != null) return '$formattedColumn $comparison ${numeric.toString()}';
     final wordNumber = _LocalSqlGenerator._englishNumberWords[cleanValue];
-    if (wordNumber != null) return '$column $comparison $wordNumber';
+    if (wordNumber != null) return '$formattedColumn $comparison $wordNumber';
 
     final normalized = cleanValue.replaceAll(RegExp(r'^(es|is)\s+'), '').trim();
     final escaped = normalized.replaceAll("'", "''");
-    return "$column $comparison '$escaped'";
+    return "$formattedColumn $comparison '$escaped'";
   }
 }
 

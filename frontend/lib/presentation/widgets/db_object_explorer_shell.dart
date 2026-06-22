@@ -594,6 +594,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
           objectName: object.name,
           objectType: object.objectType ?? _objectTypeFromCategory(object.category),
           schemaName: object.schemaName,
+          objectColumns: object.columns.map((column) => column.name).toList(),
         ),
       ),
     );
