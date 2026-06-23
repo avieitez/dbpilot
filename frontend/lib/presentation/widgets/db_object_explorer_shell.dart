@@ -87,11 +87,13 @@ class DbColumnInfo {
   const DbColumnInfo({
     required this.name,
     required this.type,
+    required this.isNullable,
     this.flag,
   });
 
   final String name;
   final String type;
+  final bool isNullable;
   final String? flag;
 }
 
@@ -367,6 +369,7 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               (col) => DbColumnInfo(
                 name: col.name,
                 type: col.dataType,
+                isNullable: col.isNullable,
                 flag: col.flag,
               ),
             )
@@ -1190,30 +1193,62 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                           ),
                         )
                       : null,
-                  trailing: isPk
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.greenAccent.shade400,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'PK',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: Colors.black,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        )
-                      : null,
+                  trailing: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      if (col.isNullable)
+                        _ColumnBadge(
+                          label: 'NULL',
+                          backgroundColor: colors.surfaceContainerHighest,
+                          foregroundColor: colors.onSurfaceVariant,
+                        ),
+                      if (isPk)
+                        _ColumnBadge(
+                          label: 'PK',
+                          backgroundColor: Colors.greenAccent.shade400,
+                          foregroundColor: Colors.black,
+                        ),
+                    ],
+                  ),
                 );
               },
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _ColumnBadge extends StatelessWidget {
+  const _ColumnBadge({
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: foregroundColor,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0,
+        ),
       ),
     );
   }

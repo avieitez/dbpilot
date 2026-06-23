@@ -196,10 +196,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${provider.label} database';
   }
 
-  Future<void> _openConnectionScreen({Map<String, dynamic>? initialData}) async {
+  Future<void> _openConnectionScreen({
+    Map<String, dynamic>? initialData,
+    bool duplicate = false,
+  }) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ConnectionScreen(initialData: initialData),
+        builder: (_) => ConnectionScreen(
+          initialData: initialData,
+          duplicate: duplicate,
+        ),
       ),
     );
 
@@ -380,6 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _deleteConnection(Map<String, dynamic> connection) async {
     final name = connection['name']?.toString() ?? 'this connection';
+    final provider = _providerFromMap(connection);
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -402,6 +409,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true) return;
 
     await _storageService.deleteConnectionById(_connectionId(connection));
+    await _queryHistoryService.deleteQueriesForConnection(
+      provider: provider.apiValue,
+      connectionName: name,
+    );
     await _loadData();
 
     if (!mounted) return;
@@ -409,6 +420,43 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text(AppStrings.connectionDeleted)),
     );
+  }
+
+  Future<void> _duplicateConnection(Map<String, dynamic> connection) async {
+    final fullConnection = await _storageService.getConnectionById(
+      _connectionId(connection),
+    );
+
+    if (!mounted) return;
+
+    if (fullConnection == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connection not found.')),
+      );
+      return;
+    }
+
+    final duplicateData = Map<String, dynamic>.from(fullConnection);
+    duplicateData.remove('id');
+    duplicateData['name'] = _copyConnectionName(fullConnection['name']?.toString() ?? '');
+
+    await _openConnectionScreen(initialData: duplicateData, duplicate: true);
+  }
+
+  String _copyConnectionName(String name) {
+    final baseName = name.trim().isEmpty ? 'Connection' : name.trim();
+    final existingNames = _connections
+        .map((connection) => connection['name']?.toString().trim().toLowerCase() ?? '')
+        .toSet();
+
+    var candidate = '$baseName Copy';
+    var index = 2;
+    while (existingNames.contains(candidate.toLowerCase())) {
+      candidate = '$baseName Copy $index';
+      index++;
+    }
+
+    return candidate;
   }
 
   Future<void> _deleteQuery(QueryHistoryItem query) async {
@@ -703,6 +751,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     await _runQueryFromConnection(connection);
                   } else if (value == 'edit') {
                     await _openConnectionScreen(initialData: connection);
+                  } else if (value == 'duplicate') {
+                    await _duplicateConnection(connection);
                   } else if (value == 'delete') {
                     await _deleteConnection(connection);
                   }
@@ -719,6 +769,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   PopupMenuItem(
                     value: 'edit',
                     child: Text(AppStrings.edit),
+                  ),
+                  PopupMenuItem(
+                    value: 'duplicate',
+                    child: Text('Duplicate'),
                   ),
                   PopupMenuItem(
                     value: 'delete',

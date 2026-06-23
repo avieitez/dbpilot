@@ -15,9 +15,11 @@ class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({
     super.key,
     this.initialData,
+    this.duplicate = false,
   });
 
   final Map<String, dynamic>? initialData;
+  final bool duplicate;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -59,7 +61,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   String? _statusMessage;
   bool? _statusSuccess;
 
-  bool get _isEditing => widget.initialData != null;
+  bool get _isEditing => widget.initialData != null && !widget.duplicate;
+  bool get _isDuplicating => widget.initialData != null && widget.duplicate;
   bool get _isOracle => _selectedProvider == DatabaseProvider.oracle;
 
   @override
@@ -76,7 +79,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
 
     _originalData = Map<String, dynamic>.from(data);
-    _editingConnectionId = data['id']?.toString();
+    _editingConnectionId = widget.duplicate ? null : data['id']?.toString();
 
     final providerValue = data['provider']?.toString() ?? 'postgresql';
     final provider = DatabaseProviderX.fromString(providerValue);
@@ -88,19 +91,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   void _applyProviderDefaults(DatabaseProvider provider) {
     _portController.text = provider.defaultPort;
-    if (provider == DatabaseProvider.postgresql) {
-      _databaseController.text = 'postgres';
-      _serviceNameController.clear();
-      _sidController.clear();
-    } else if (provider == DatabaseProvider.sqlServer) {
-      _databaseController.text = 'master';
-      _serviceNameController.clear();
-      _sidController.clear();
-    } else {
-      _databaseController.clear();
-      _serviceNameController.clear();
-      _sidController.clear();
-    }
+    _databaseController.clear();
+    _serviceNameController.clear();
+    _sidController.clear();
   }
 
   void _applyDataToControllers(Map<String, dynamic> data, DatabaseProvider provider) {
@@ -111,7 +104,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         : provider.defaultPort;
     _databaseController.text = data['database']?.toString() ?? '';
     _usernameController.text = data['username']?.toString() ?? '';
-    _passwordController.clear();
+    if (_isDuplicating) {
+      _passwordController.text = data['password']?.toString() ?? '';
+    } else {
+      _passwordController.clear();
+    }
     _serviceNameController.text = (data['serviceName']?.toString().isNotEmpty ?? false)
         ? data['serviceName'].toString()
         : '23ai_34ui2';
@@ -160,11 +157,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               : (_sidController.text.trim().isNotEmpty
                   ? _sidController.text.trim()
                   : databaseValue))
-          : (databaseValue.isNotEmpty
-              ? databaseValue
-              : (_selectedProvider == DatabaseProvider.postgresql
-                  ? 'postgres'
-                  : 'master')),
+          : databaseValue,
       serviceName: _isOracle
           ? _serviceNameController.text.trim().isEmpty
               ? null
@@ -206,6 +199,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
+    final nameError = await _validateUniqueConnectionName(request.name);
+    if (nameError != null) {
+      if (!mounted) return;
+      setState(() {
+        _statusSuccess = false;
+        _statusMessage = nameError;
+      });
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -258,6 +260,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
+    final nameError = await _validateUniqueConnectionName(request.name);
+    if (nameError != null) {
+      if (!mounted) return;
+      setState(() {
+        _statusSuccess = false;
+        _statusMessage = nameError;
+      });
+      return;
+    }
+
     final connectionId =
         _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -277,6 +289,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
 
     Navigator.of(context).pop(true);
+  }
+
+  Future<String?> _validateUniqueConnectionName(String name) async {
+    final normalizedName = name.trim().toLowerCase();
+    if (normalizedName.isEmpty) return 'Enter a name for this connection';
+
+    final connections = await _storageService.getSavedConnections();
+    final currentId = _editingConnectionId;
+
+    for (final connection in connections) {
+      final connectionId = connection['id']?.toString();
+      if (currentId != null && connectionId == currentId) continue;
+
+      final existingName = connection['name']?.toString().trim().toLowerCase() ?? '';
+      if (existingName == normalizedName) {
+        return 'A connection with this name already exists.';
+      }
+    }
+
+    return null;
   }
 
   TextInputAction _actionForField(String fieldKey) {
@@ -704,7 +736,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         title: Column(
           children: [
             Text(
-              _isEditing ? AppStrings.editConnection : AppStrings.newConnection,
+              _isEditing
+                  ? AppStrings.editConnection
+                  : _isDuplicating
+                      ? 'Duplicate Connection'
+                      : AppStrings.newConnection,
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 28,
@@ -714,7 +750,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             Text(
               _isEditing
                   ? 'Modify your saved database connection.'
-                  : 'Configure your database connection parameters.',
+                  : _isDuplicating
+                      ? 'Review the copied settings and choose a unique name.'
+                      : 'Configure your database connection parameters.',
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 14,

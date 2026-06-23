@@ -104,6 +104,30 @@ class QueryHistoryStorageService {
 
     await prefs.setStringList(_storageKey, filtered);
   }
+
+  Future<void> deleteQueriesForConnection({
+    required String provider,
+    required String connectionName,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final items = prefs.getStringList(_storageKey) ?? [];
+    final normalizedProvider = provider.trim().toLowerCase();
+    final normalizedConnectionName = connectionName.trim().toLowerCase();
+
+    final filtered = items.where((item) {
+      try {
+        final map = jsonDecode(item) as Map<String, dynamic>;
+        final itemProvider = map['provider']?.toString().trim().toLowerCase() ?? '';
+        final itemConnectionName = map['connectionName']?.toString().trim().toLowerCase() ?? '';
+        return itemProvider != normalizedProvider ||
+            itemConnectionName != normalizedConnectionName;
+      } catch (_) {
+        return true;
+      }
+    }).toList();
+
+    await prefs.setStringList(_storageKey, filtered);
+  }
   
   Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
