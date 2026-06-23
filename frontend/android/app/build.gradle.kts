@@ -16,7 +16,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.dbpilot"
+    namespace = "com.avieitez.dbpilot"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
