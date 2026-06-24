@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "100510560960",
+    "project_id": "dbpilot-feb6e",
+    "storage_bucket": "dbpilot-feb6e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:100510560960:android:23f695faf0ec200531b325",
+        "android_client_info": {
+          "package_name": "com.avieitez.dbpilot"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "100510560960-iqhr0e1e51l86p829po90q4f20oif5m1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.avieitez.dbpilot",
+            "certificate_hash": "69373912b8601c1da6cbc37df18361f74925224c"
+          }
+        },
+        {
+          "client_id": "100510560960-20gcgaoctqjk0khcv3llln4crk58ql57.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAe9cq-hU4kWxu9oRh7RIwazbmSt0Z0tqM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "100510560960-20gcgaoctqjk0khcv3llln4crk58ql57.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
