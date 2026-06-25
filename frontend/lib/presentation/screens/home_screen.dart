@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,9 +13,11 @@ import '../../core/constants/app_assets.dart';
 import '../../core/strings/strings.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
+import '../../services/auth_service.dart';
 import '../../services/connection_api_service.dart';
 import '../../services/query_history_storage_service.dart';
 import '../../services/saved_connection_storage_service.dart';
+import '../../services/subscription_service.dart';
 import 'connection_screen.dart';
 import 'oracle_main.dart';
 import 'postgresql_main.dart';
@@ -49,9 +53,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final _storageService = SavedConnectionStorageService();
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
+  final _authService = AuthService();
 
   bool _loading = true;
   bool _connecting = false;
+  bool _authLoading = false;
   int _selectedIndex = 0;
   DatabaseProvider? _expandedConnectionProvider;
   DatabaseProvider? _expandedQueryProvider;
@@ -73,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<QueryHistoryItem> _queries = [];
   String? _activeConnectionId;
   Map<String, dynamic>? _activeConnection;
+  AppUserSession? _authSession;
 
   @override
   void initState() {
@@ -84,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final connections = await _storageService.getSavedConnections();
     final queries = await _queryHistoryService.getQueries();
     final activeId = await _storageService.getActiveConnectionId();
+    final authSession = await _authService.currentSession();
     final prefs = await SharedPreferences.getInstance();
 
     Map<String, dynamic>? active;
@@ -101,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _queries = queries;
       _activeConnectionId = activeId;
       _activeConnection = active;
+      _authSession = authSession;
       _defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
       _confirmDangerousQueries = prefs.getBool('settings.confirmDangerousQueries') ?? true;
       _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
@@ -1437,7 +1446,67 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _signInWithGoogle() async {
+    if (_authLoading) return;
+
+    setState(() => _authLoading = true);
+    try {
+      final session = await _authService.signInWithGoogle();
+      if (!mounted) return;
+
+      setState(() => _authSession = session);
+      if (session == null) {
+        _showInfo('Google sign-in was cancelled.');
+        return;
+      }
+
+      _showInfo('Signed in. UID: ${session.uid}');
+    } catch (error) {
+      if (!mounted) return;
+      _showInfo('Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _authLoading = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    if (_authLoading) return;
+
+    setState(() => _authLoading = true);
+    try {
+      await _authService.signOut();
+      if (!mounted) return;
+      setState(() => _authSession = null);
+      _showInfo('Signed out.');
+    } catch (error) {
+      if (!mounted) return;
+      _showInfo('Sign-out failed: ${error.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _authLoading = false);
+    }
+  }
+
+  Future<void> _refreshSubscriptionPlan() async {
+    if (_authLoading) return;
+
+    setState(() => _authLoading = true);
+    try {
+      final session = await _authService.currentSession();
+      if (!mounted) return;
+      setState(() => _authSession = session);
+      _showInfo(session == null ? 'Sign in to check your plan.' : 'Plan checked: ${session.plan.label}.');
+    } catch (error) {
+      if (!mounted) return;
+      _showInfo('Plan check failed: ${error.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _authLoading = false);
+    }
+  }
+
   Widget _planTile() {
+    final session = _authSession;
+    final currentPlan = session?.plan ?? SubscriptionPlan.free;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1448,15 +1517,35 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Current plan: Free',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          Text(
+            'Current plan: ${currentPlan.label}',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Up to 3 connections, limited history, CSV export and SELECT-only workflow.',
-            style: TextStyle(color: Colors.white70),
+          Text(
+            currentPlan == SubscriptionPlan.pro
+                ? 'Unlimited connections, full history, all export formats and advanced query workflows.'
+                : 'Up to 3 connections, limited history, CSV export and SELECT-only workflow.',
+            style: const TextStyle(color: Colors.white70),
           ),
+          const SizedBox(height: 12),
+          if (session == null)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _authLoading ? null : _signInWithGoogle,
+                icon: _authLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.login_rounded),
+                label: const Text('Continuar con Google'),
+              ),
+            )
+          else
+            _signedInPlanDetails(session),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -1471,12 +1560,81 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _openPaywall() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => const _PaywallScreen(),
+  Widget _signedInPlanDetails(AppUserSession session) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            session.displayName?.trim().isNotEmpty == true
+                ? session.displayName!
+                : session.email ?? 'Google account',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          if (session.email != null && session.email!.trim().isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              session.email!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ],
+          const SizedBox(height: 8),
+          SelectableText(
+            'UID: ${session.uid}',
+            style: const TextStyle(color: Colors.white60, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _authLoading ? null : _refreshSubscriptionPlan,
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Check plan'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _authLoading ? null : _signOut,
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Sign out'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _openPaywall() async {
+    final session = _authSession;
+    if (session == null) {
+      _showInfo('Sign in with Google before upgrading.');
+      return;
+    }
+
+    final upgraded = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => _PaywallScreen(uid: session.uid),
+      ),
+    );
+
+    if (upgraded == true) {
+      await _refreshSubscriptionPlan();
+    }
   }
 
   Widget _settingsDropdown<T>({
@@ -2069,12 +2227,133 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _PaywallScreen extends StatelessWidget {
-  const _PaywallScreen();
+class _PaywallScreen extends StatefulWidget {
+  const _PaywallScreen({required this.uid});
+
+  final String uid;
+
+  @override
+  State<_PaywallScreen> createState() => _PaywallScreenState();
+}
+
+class _PaywallScreenState extends State<_PaywallScreen> {
+  final _subscriptionService = SubscriptionService();
+  StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
+  SubscriptionProduct? _product;
+  bool _loadingProduct = true;
+  bool _buying = false;
+  String? _storeMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _purchaseSubscription = _subscriptionService.purchaseStream.listen(
+      _handlePurchaseUpdates,
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _buying = false;
+          _storeMessage = 'Purchase update failed: $error';
+        });
+      },
+    );
+    unawaited(_loadProduct());
+  }
+
+  Future<void> _loadProduct() async {
+    setState(() {
+      _loadingProduct = true;
+      _storeMessage = null;
+    });
+
+    try {
+      final product = await _subscriptionService.loadProProduct();
+      if (!mounted) return;
+      setState(() {
+        _product = product;
+        _loadingProduct = false;
+        _storeMessage = product == null
+            ? 'Pro subscription is not available yet. Check Google Play product setup.'
+            : null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingProduct = false;
+        _storeMessage = 'Could not load subscription: $error';
+      });
+    }
+  }
+
+  Future<void> _buyPro() async {
+    final product = _product;
+    if (product == null || _buying) return;
+
+    setState(() {
+      _buying = true;
+      _storeMessage = null;
+    });
+
+    try {
+      await _subscriptionService.buyPro(product);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _buying = false;
+        _storeMessage = 'Could not start purchase: $error';
+      });
+    }
+  }
+
+  Future<void> _restorePurchases() async {
+    if (_buying) return;
+
+    setState(() {
+      _buying = true;
+      _storeMessage = null;
+    });
+
+    try {
+      await _subscriptionService.restorePurchases();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _buying = false;
+        _storeMessage = 'Could not restore purchases: $error';
+      });
+    }
+  }
+
+  Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
+    for (final purchase in purchases) {
+      final result = await _subscriptionService.handlePurchaseUpdate(
+        uid: widget.uid,
+        purchase: purchase,
+      );
+      if (!mounted || result == null) continue;
+
+      setState(() {
+        _buying = false;
+        _storeMessage = result.message;
+      });
+
+      if (result.plan == SubscriptionPlan.pro) {
+        Navigator.of(context).pop(true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _purchaseSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final product = _product;
+    final priceLabel = product == null ? null : product.price;
 
     return Scaffold(
       backgroundColor: const Color(0xFF030817),
@@ -2105,6 +2384,7 @@ class _PaywallScreen extends StatelessWidget {
                       icon: Icons.rocket_launch_rounded,
                       featured: true,
                       badge: 'PRO',
+                      price: priceLabel,
                       features: const [
                         _PlanFeature(Icons.all_inclusive_rounded, 'Unlimited connections', 'All 3 providers supported'),
                         _PlanFeature(Icons.storage_rounded, 'Full query history', 'No limits'),
@@ -2128,12 +2408,20 @@ class _PaywallScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              if (_storeMessage != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                  child: Text(
+                    _storeMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
               _PaywallActions(
-                onUpgrade: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Payments are not connected yet.')),
-                  );
-                },
+                busy: _loadingProduct || _buying,
+                price: priceLabel,
+                onUpgrade: _loadingProduct || _buying || product == null ? null : _buyPro,
+                onRestore: _loadingProduct || _buying ? null : _restorePurchases,
                 onContinue: () => Navigator.of(context).pop(),
               ),
             ],
@@ -2192,6 +2480,7 @@ class _PlanCard extends StatelessWidget {
     required this.features,
     this.featured = false,
     this.badge,
+    this.price,
   });
 
   final String title;
@@ -2200,6 +2489,7 @@ class _PlanCard extends StatelessWidget {
   final List<_PlanFeature> features;
   final bool featured;
   final String? badge;
+  final String? price;
 
   @override
   Widget build(BuildContext context) {
@@ -2247,6 +2537,13 @@ class _PlanCard extends StatelessWidget {
           Text(title, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 0)),
           const SizedBox(height: 4),
           Text(subtitle, style: TextStyle(color: featured ? const Color(0xFFB99CFF) : const Color(0xFFC2B8FF))),
+          if (price != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              price!,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+          ],
           const SizedBox(height: 18),
           for (var i = 0; i < features.length; i++) ...[
             if (i > 0) Divider(color: Colors.white.withOpacity(0.1), height: 18),
@@ -2302,10 +2599,19 @@ class _PlanFeatureRow extends StatelessWidget {
 }
 
 class _PaywallActions extends StatelessWidget {
-  const _PaywallActions({required this.onUpgrade, required this.onContinue});
+  const _PaywallActions({
+    required this.onUpgrade,
+    required this.onRestore,
+    required this.onContinue,
+    required this.busy,
+    required this.price,
+  });
 
-  final VoidCallback onUpgrade;
+  final VoidCallback? onUpgrade;
+  final VoidCallback? onRestore;
   final VoidCallback onContinue;
+  final bool busy;
+  final String? price;
 
   @override
   Widget build(BuildContext context) {
@@ -2333,10 +2639,25 @@ class _PaywallActions extends StatelessWidget {
                   shadowColor: Colors.transparent,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                icon: const Icon(Icons.workspace_premium_rounded),
-                label: const Text('Upgrade to Pro', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                icon: busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.workspace_premium_rounded),
+                label: Text(
+                  price == null ? 'Upgrade to Pro' : 'Upgrade to Pro · $price',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
               ),
             ),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: onRestore,
+            icon: const Icon(Icons.restore_rounded, size: 18),
+            label: const Text('Restore purchases'),
           ),
           const SizedBox(height: 8),
           SizedBox(
