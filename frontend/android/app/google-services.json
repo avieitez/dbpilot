@@ -37,6 +37,13 @@
             {
               "client_id": "100510560960-20gcgaoctqjk0khcv3llln4crk58ql57.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "100510560960-8h8bjc0sisvtvehaunrks7b4gl0krlqm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.dbpilot"
+              }
             }
           ]
         }
