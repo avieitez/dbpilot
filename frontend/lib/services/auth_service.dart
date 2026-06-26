@@ -34,6 +34,9 @@ class AppUserSession {
 }
 
 class AuthService {
+  static const String _serverClientId =
+      '100510560960-20gcgaoctqjk0khcv3llln4crk58ql57.apps.googleusercontent.com';
+
   AuthService({
     FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
@@ -55,6 +58,7 @@ class AuthService {
   Future<AppUserSession?> signInWithGoogle() async {
     await _ensureGoogleInitialized();
 
+    await _googleSignIn.signOut();
     final googleUser = await _googleSignIn.authenticate();
     final googleAuth = googleUser.authentication;
     final credential = GoogleAuthProvider.credential(
@@ -94,7 +98,7 @@ class AuthService {
 
   Future<void> _ensureGoogleInitialized() async {
     if (_googleInitialized) return;
-    await _googleSignIn.initialize();
+    await _googleSignIn.initialize(serverClientId: _serverClientId);
     _googleInitialized = true;
   }
 }
