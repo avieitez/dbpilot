@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "100510560960-rd4h5p90gh1qk3pv7vjruldfccs60adm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.avieitez.dbpilot",
+            "certificate_hash": "cd64e9e7609728cb3ea3c7cbe3b5a623112dd8e6"
+          }
+        },
+        {
           "client_id": "100510560960-20gcgaoctqjk0khcv3llln4crk58ql57.apps.googleusercontent.com",
           "client_type": 3
         }
