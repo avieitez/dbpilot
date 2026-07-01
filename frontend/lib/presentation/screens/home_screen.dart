@@ -111,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _activeConnection = active;
       _authSession = authSession;
       _defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
-      _confirmDangerousQueries = prefs.getBool('settings.confirmDangerousQueries') ?? true;
+      _confirmDangerousQueries =
+          prefs.getBool('settings.confirmDangerousQueries') ?? true;
       _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
       _autoFormatOnLoad = prefs.getBool('settings.autoFormatOnLoad') ?? false;
       _exportHeaders = prefs.getBool('settings.exportHeaders') ?? true;
@@ -119,7 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _defaultLimit = prefs.getInt('settings.defaultLimit') ?? 100;
       _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
       _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
-      _defaultExportFormat = prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _defaultExportFormat =
+          prefs.getString('settings.defaultExportFormat') ?? 'CSV';
       _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _loading = false;
     });
@@ -130,14 +132,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   DatabaseProvider _providerFromMap(Map<String, dynamic> connection) {
-    return DatabaseProviderX.fromString(connection['provider']?.toString() ?? '');
+    return DatabaseProviderX.fromString(
+        connection['provider']?.toString() ?? '');
   }
 
   String _connectionId(Map<String, dynamic> connection) {
     return _storageService.ensureConnectionId(connection);
   }
 
-  Future<ConnectionRequest> _buildRequest(Map<String, dynamic> connection) async {
+  Future<ConnectionRequest> _buildRequest(
+      Map<String, dynamic> connection) async {
     final id = _connectionId(connection);
     final fullConnection = await _storageService.getConnectionById(id);
 
@@ -447,7 +451,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final duplicateData = Map<String, dynamic>.from(fullConnection);
     duplicateData.remove('id');
-    duplicateData['name'] = _copyConnectionName(fullConnection['name']?.toString() ?? '');
+    duplicateData['name'] =
+        _copyConnectionName(fullConnection['name']?.toString() ?? '');
 
     await _openConnectionScreen(initialData: duplicateData, duplicate: true);
   }
@@ -455,7 +460,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String _copyConnectionName(String name) {
     final baseName = name.trim().isEmpty ? 'Connection' : name.trim();
     final existingNames = _connections
-        .map((connection) => connection['name']?.toString().trim().toLowerCase() ?? '')
+        .map((connection) =>
+            connection['name']?.toString().trim().toLowerCase() ?? '')
         .toSet();
 
     var candidate = '$baseName Copy';
@@ -512,9 +518,7 @@ class _HomeScreenState extends State<HomeScreen> {
       width: 50,
       height: 50,
       decoration: BoxDecoration(
-        color: active
-            ? const Color(0xFF0F3B61)
-            : const Color(0xFF1A1D23),
+        color: active ? const Color(0xFF0F3B61) : const Color(0xFF1A1D23),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: active
@@ -539,7 +543,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildActiveConnectionCard() {
     final active = _activeConnection;
     final hasActive = active != null;
-    final provider = hasActive ? _providerFromMap(active) : DatabaseProvider.sqlServer;
+    final provider =
+        hasActive ? _providerFromMap(active) : DatabaseProvider.sqlServer;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
@@ -729,7 +734,8 @@ class _HomeScreenState extends State<HomeScreen> {
               if (isActive)
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 240),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFF104A3A),
                     borderRadius: BorderRadius.circular(999),
@@ -848,14 +854,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Map<String, List<QueryHistoryItem>> _groupQueriesByConnection(List<QueryHistoryItem> queries) {
+  Map<String, List<QueryHistoryItem>> _groupQueriesByConnection(
+      List<QueryHistoryItem> queries) {
     final grouped = <String, List<QueryHistoryItem>>{};
 
     for (final query in queries) {
       final connectionName = query.connectionName.trim().isEmpty
           ? 'Unnamed connection'
           : query.connectionName.trim();
-      grouped.putIfAbsent(connectionName, () => <QueryHistoryItem>[]).add(query);
+      grouped
+          .putIfAbsent(connectionName, () => <QueryHistoryItem>[])
+          .add(query);
     }
 
     return grouped;
@@ -901,7 +910,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(999),
@@ -942,8 +952,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
-  Map<DatabaseProvider, List<Map<String, dynamic>>> _groupConnectionsByProvider() {
+  Map<DatabaseProvider, List<Map<String, dynamic>>>
+      _groupConnectionsByProvider() {
     final grouped = <DatabaseProvider, List<Map<String, dynamic>>>{
       DatabaseProvider.sqlServer: [],
       DatabaseProvider.postgresql: [],
@@ -1131,7 +1141,8 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(18),
               onTap: onToggle,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(
                   children: [
                     _providerIcon(provider),
@@ -1146,7 +1157,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(999),
@@ -1210,7 +1222,10 @@ class _HomeScreenState extends State<HomeScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _defaultSafeMode,
-              onChanged: (value) => _updateBoolSetting('settings.defaultSafeMode', value, (v) => _defaultSafeMode = v),
+              onChanged: (value) => _updateBoolSetting(
+                  'settings.defaultSafeMode',
+                  value,
+                  (v) => _defaultSafeMode = v),
               title: const Text('Safe Mode by default'),
               subtitle: const Text('Block non-SELECT queries by default.'),
             ),
@@ -1242,7 +1257,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     value: _defaultTimeout,
                     values: const [10, 30, 60],
                     labelFor: (value) => '${value}s',
-                    onChanged: (value) => _updateIntSetting('settings.defaultTimeout', value, (v) => _defaultTimeout = v),
+                    onChanged: (value) => _updateIntSetting(
+                        'settings.defaultTimeout',
+                        value,
+                        (v) => _defaultTimeout = v),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1252,7 +1270,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     value: _defaultLimit,
                     values: const [50, 100, 250, 500],
                     labelFor: (value) => '$value',
-                    onChanged: (value) => _updateIntSetting('settings.defaultLimit', value, (v) => _defaultLimit = v),
+                    onChanged: (value) => _updateIntSetting(
+                        'settings.defaultLimit',
+                        value,
+                        (v) => _defaultLimit = v),
                   ),
                 ),
               ],
@@ -1268,7 +1289,8 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _editorTheme,
               values: const ['Dark', 'High contrast'],
               labelFor: (value) => value,
-              onChanged: (value) => _updateStringSetting('settings.editorTheme', value, (v) => _editorTheme = v),
+              onChanged: (value) => _updateStringSetting(
+                  'settings.editorTheme', value, (v) => _editorTheme = v),
             ),
             const SizedBox(height: 10),
             _settingsDropdown<double>(
@@ -1276,18 +1298,25 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _editorFontSize,
               values: const [12, 14, 16, 18],
               labelFor: (value) => value.toStringAsFixed(0),
-              onChanged: (value) => _updateDoubleSetting('settings.editorFontSize', value, (v) => _editorFontSize = v),
+              onChanged: (value) => _updateDoubleSetting(
+                  'settings.editorFontSize', value, (v) => _editorFontSize = v),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _showLineNumbers,
-              onChanged: (value) => _updateBoolSetting('settings.showLineNumbers', value, (v) => _showLineNumbers = v),
+              onChanged: (value) => _updateBoolSetting(
+                  'settings.showLineNumbers',
+                  value,
+                  (v) => _showLineNumbers = v),
               title: const Text('Show line numbers'),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _autoFormatOnLoad,
-              onChanged: (value) => _updateBoolSetting('settings.autoFormatOnLoad', value, (v) => _autoFormatOnLoad = v),
+              onChanged: (value) => _updateBoolSetting(
+                  'settings.autoFormatOnLoad',
+                  value,
+                  (v) => _autoFormatOnLoad = v),
               title: const Text('Auto-format SQL on load'),
             ),
             const ListTile(
@@ -1306,13 +1335,17 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _defaultExportFormat,
               values: const ['CSV', 'JSON', 'Excel'],
               labelFor: (value) => value,
-              onChanged: (value) => _updateStringSetting('settings.defaultExportFormat', value, (v) => _defaultExportFormat = v),
+              onChanged: (value) => _updateStringSetting(
+                  'settings.defaultExportFormat',
+                  value,
+                  (v) => _defaultExportFormat = v),
             ),
             const SizedBox(height: 10),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _exportHeaders,
-              onChanged: (value) => _updateBoolSetting('settings.exportHeaders', value, (v) => _exportHeaders = v),
+              onChanged: (value) => _updateBoolSetting(
+                  'settings.exportHeaders', value, (v) => _exportHeaders = v),
               title: const Text('Include headers'),
             ),
             _settingsDropdown<String>(
@@ -1320,7 +1353,8 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _csvSeparator,
               values: const [',', ';', '\t'],
               labelFor: (value) => value == '\t' ? 'Tab' : value,
-              onChanged: (value) => _updateStringSetting('settings.csvSeparator', value, (v) => _csvSeparator = v),
+              onChanged: (value) => _updateStringSetting(
+                  'settings.csvSeparator', value, (v) => _csvSeparator = v),
             ),
           ],
         ),
@@ -1367,7 +1401,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: _aboutAppIcon(size: 42),
-              title: const Text(_appName, style: TextStyle(fontWeight: FontWeight.w900)),
+              title: const Text(_appName,
+                  style: TextStyle(fontWeight: FontWeight.w900)),
               subtitle: Text('Version $_appVersion ($_appBuildNumber)'),
               trailing: TextButton(
                 onPressed: _showAppAboutDialog,
@@ -1463,7 +1498,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _showInfo('Signed in. UID: ${session.uid}');
     } catch (error) {
       if (!mounted) return;
-      _showInfo('Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}');
+      _showInfo(
+          'Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _authLoading = false);
     }
@@ -1480,7 +1516,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _showInfo('Signed out.');
     } catch (error) {
       if (!mounted) return;
-      _showInfo('Sign-out failed: ${error.toString().replaceFirst('Exception: ', '')}');
+      _showInfo(
+          'Sign-out failed: ${error.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _authLoading = false);
     }
@@ -1494,10 +1531,13 @@ class _HomeScreenState extends State<HomeScreen> {
       final session = await _authService.currentSession();
       if (!mounted) return;
       setState(() => _authSession = session);
-      _showInfo(session == null ? 'Sign in to check your plan.' : 'Plan checked: ${session.plan.label}.');
+      _showInfo(session == null
+          ? 'Sign in to check your plan.'
+          : 'Plan checked: ${session.plan.label}.');
     } catch (error) {
       if (!mounted) return;
-      _showInfo('Plan check failed: ${error.toString().replaceFirst('Exception: ', '')}');
+      _showInfo(
+          'Plan check failed: ${error.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _authLoading = false);
     }
@@ -1621,19 +1661,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openPaywall() async {
     final session = _authSession;
-    if (session == null) {
-      _showInfo('Sign in with Google before upgrading.');
-      return;
-    }
 
     final upgraded = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (context) => _PaywallScreen(uid: session.uid),
+        builder: (context) => _PaywallScreen(
+          uid: session?.uid,
+          onSignIn: _signInForPurchase,
+        ),
       ),
     );
 
     if (upgraded == true) {
       await _refreshSubscriptionPlan();
+    }
+  }
+
+  Future<String?> _signInForPurchase() async {
+    try {
+      final session = await _authService.signInWithGoogle();
+      if (!mounted || session == null) return null;
+      setState(() => _authSession = session);
+      return session.uid;
+    } catch (error) {
+      if (mounted) {
+        _showInfo(
+          'Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+      return null;
     }
   }
 
@@ -1677,28 +1732,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _updateBoolSetting(String key, bool value, ValueChanged<bool> assign) async {
+  Future<void> _updateBoolSetting(
+      String key, bool value, ValueChanged<bool> assign) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
     if (!mounted) return;
     setState(() => assign(value));
   }
 
-  Future<void> _updateIntSetting(String key, int value, ValueChanged<int> assign) async {
+  Future<void> _updateIntSetting(
+      String key, int value, ValueChanged<int> assign) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(key, value);
     if (!mounted) return;
     setState(() => assign(value));
   }
 
-  Future<void> _updateDoubleSetting(String key, double value, ValueChanged<double> assign) async {
+  Future<void> _updateDoubleSetting(
+      String key, double value, ValueChanged<double> assign) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(key, value);
     if (!mounted) return;
     setState(() => assign(value));
   }
 
-  Future<void> _updateStringSetting(String key, String value, ValueChanged<String> assign) async {
+  Future<void> _updateStringSetting(
+      String key, String value, ValueChanged<String> assign) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, value);
     if (!mounted) return;
@@ -1748,7 +1807,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final encoder = const JsonEncoder.withIndent('  ');
     final directory = await getApplicationDocumentsDirectory();
-    final file = File('${directory.path}/dbpilot_settings_${_exportTimestamp()}.json');
+    final file =
+        File('${directory.path}/dbpilot_settings_${_exportTimestamp()}.json');
     await file.writeAsString(encoder.convert(payload), flush: true);
 
     await Share.shareXFiles(
@@ -1771,7 +1831,8 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Paste a DBPilot settings JSON backup. This will update app preferences only.'),
+              const Text(
+                  'Paste a DBPilot settings JSON backup. This will update app preferences only.'),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
@@ -1794,8 +1855,12 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: const Text('Paste'),
           ),
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Import')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Import')),
         ],
       ),
     );
@@ -1821,7 +1886,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final settingsPayload = decoded['settings'];
-      final settings = settingsPayload is Map<String, dynamic> ? settingsPayload : decoded;
+      final settings =
+          settingsPayload is Map<String, dynamic> ? settingsPayload : decoded;
       final applied = await _applyImportedSettings(settings);
 
       if (applied == 0) {
@@ -1882,7 +1948,8 @@ class _HomeScreenState extends State<HomeScreen> {
     await setInt('settings.defaultLimit', const [50, 100, 250, 500]);
     await setDouble('settings.editorFontSize', const [12.0, 14.0, 16.0, 18.0]);
     await setString('settings.editorTheme', const ['Dark', 'High contrast']);
-    await setString('settings.defaultExportFormat', const ['CSV', 'JSON', 'Excel']);
+    await setString(
+        'settings.defaultExportFormat', const ['CSV', 'JSON', 'Excel']);
     await setString('settings.csvSeparator', const [',', ';', '\t']);
 
     return applied;
@@ -1891,7 +1958,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _clearLocalCache() async {
     final confirmed = await _confirmSettingsAction(
       title: 'Clear local cache?',
-      message: 'This clears the active connection and temporary query editor sessions. Saved connections, query history and settings will not be deleted.',
+      message:
+          'This clears the active connection and temporary query editor sessions. Saved connections, query history and settings will not be deleted.',
     );
     if (!confirmed) return;
 
@@ -1927,8 +1995,12 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Confirm')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Confirm')),
         ],
       ),
     );
@@ -1939,8 +2011,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _showAboutTextDialog(
       title: _appName,
       icon: Icons.info_outline_rounded,
-      body:
-          'Version $_appVersion ($_appBuildNumber)\n\n'
+      body: 'Version $_appVersion ($_appBuildNumber)\n\n'
           'Mobile database utility for SQL Server, Oracle and PostgreSQL.\n\n'
           'Use Settings to configure security defaults, query editor behavior, export preferences and local storage options.',
     );
@@ -1974,8 +2045,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _showAboutTextDialog(
       title: 'Contact / support',
       icon: Icons.support_agent_rounded,
-      body:
-          'For support, send an email to:\n\n'
+      body: 'For support, send an email to:\n\n'
           '$_supportEmail\n\n'
           'Include the app version, provider, device type and a short description of the issue. You can use "Copy app info" from this screen to prepare the basic details.',
       actions: [
@@ -2063,7 +2133,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showInfo(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _bottomNavItem({
@@ -2124,8 +2195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Icon(
                     icon,
                     key: ValueKey('$label-$selected'),
-                    color:
-                        selected ? const Color(0xFF2D8CFF) : Colors.white54,
+                    color: selected ? const Color(0xFF2D8CFF) : Colors.white54,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -2134,8 +2204,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   curve: Curves.easeOutCubic,
                   style: TextStyle(
                     fontSize: 12,
-                    color:
-                        selected ? const Color(0xFF2D8CFF) : Colors.white54,
+                    color: selected ? const Color(0xFF2D8CFF) : Colors.white54,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
                   ),
                   child: Text(label),
@@ -2228,9 +2297,10 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _PaywallScreen extends StatefulWidget {
-  const _PaywallScreen({required this.uid});
+  const _PaywallScreen({required this.uid, required this.onSignIn});
 
-  final String uid;
+  final String? uid;
+  final Future<String?> Function() onSignIn;
 
   @override
   State<_PaywallScreen> createState() => _PaywallScreenState();
@@ -2240,6 +2310,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
   final _subscriptionService = SubscriptionService();
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   SubscriptionProduct? _product;
+  String? _uid;
   bool _loadingProduct = true;
   bool _buying = false;
   String? _storeMessage;
@@ -2247,6 +2318,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
   @override
   void initState() {
     super.initState();
+    _uid = widget.uid;
     _purchaseSubscription = _subscriptionService.purchaseStream.listen(
       _handlePurchaseUpdates,
       onError: (error) {
@@ -2295,6 +2367,15 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     });
 
     try {
+      final uid = await _ensureSignedIn();
+      if (uid == null) {
+        if (!mounted) return;
+        setState(() {
+          _buying = false;
+          _storeMessage = 'Sign in with Google to start your subscription.';
+        });
+        return;
+      }
       await _subscriptionService.buyPro(product);
     } catch (error) {
       if (!mounted) return;
@@ -2314,6 +2395,15 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     });
 
     try {
+      final uid = await _ensureSignedIn();
+      if (uid == null) {
+        if (!mounted) return;
+        setState(() {
+          _buying = false;
+          _storeMessage = 'Sign in with Google to restore your purchases.';
+        });
+        return;
+      }
       await _subscriptionService.restorePurchases();
     } catch (error) {
       if (!mounted) return;
@@ -2324,10 +2414,32 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     }
   }
 
+  Future<String?> _ensureSignedIn() async {
+    final currentUid = _uid;
+    if (currentUid != null && currentUid.trim().isNotEmpty) return currentUid;
+
+    final uid = await widget.onSignIn();
+    if (uid != null && uid.trim().isNotEmpty) {
+      _uid = uid;
+      return uid;
+    }
+    return null;
+  }
+
   Future<void> _handlePurchaseUpdates(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
+      final uid = _uid;
+      if (uid == null || uid.trim().isEmpty) {
+        if (mounted) {
+          setState(() {
+            _buying = false;
+            _storeMessage = 'Sign in with Google to verify this purchase.';
+          });
+        }
+        continue;
+      }
       final result = await _subscriptionService.handlePurchaseUpdate(
-        uid: widget.uid,
+        uid: uid,
         purchase: purchase,
       );
       if (!mounted || result == null) continue;
@@ -2359,7 +2471,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
       backgroundColor: const Color(0xFF030817),
       appBar: AppBar(
         backgroundColor: const Color(0xFF030817),
-        title: const Text('Upgrade'),
+        title: const Text('DBPilot Pro'),
       ),
       body: SafeArea(
         child: DecoratedBox(
@@ -2374,37 +2486,34 @@ class _PaywallScreenState extends State<_PaywallScreen> {
             children: [
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 150),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                   children: [
                     _PaywallHero(theme: theme),
+                    const SizedBox(height: 26),
+                    const _ProBenefits(
+                      features: [
+                        _PlanFeature(
+                            Icons.all_inclusive_rounded,
+                            'Unlimited connections',
+                            'Connect every database you work with'),
+                        _PlanFeature(Icons.mic_rounded, 'Voice SQL',
+                            'Build SQL requests using your voice'),
+                        _PlanFeature(Icons.code_rounded, 'Advanced SQL',
+                            'CREATE, INSERT, UPDATE, DELETE and more'),
+                        _PlanFeature(
+                            Icons.history_rounded,
+                            'Full query history',
+                            'Keep and revisit all your executed queries'),
+                        _PlanFeature(Icons.file_download_outlined,
+                            'All export formats', 'Excel, JSON and CSV'),
+                        _PlanFeature(
+                            Icons.dns_outlined,
+                            'All database providers',
+                            'SQL Server, PostgreSQL and Oracle'),
+                      ],
+                    ),
                     const SizedBox(height: 22),
-                    _PlanCard(
-                      title: 'Pro',
-                      subtitle: 'For serious database work',
-                      icon: Icons.rocket_launch_rounded,
-                      featured: true,
-                      badge: 'PRO',
-                      price: priceLabel,
-                      features: const [
-                        _PlanFeature(Icons.all_inclusive_rounded, 'Unlimited connections', 'All 3 providers supported'),
-                        _PlanFeature(Icons.storage_rounded, 'Full query history', 'No limits'),
-                        _PlanFeature(Icons.description_rounded, 'Export in all formats', 'CSV, Excel, JSON and more'),
-                        _PlanFeature(Icons.mic_rounded, 'Voice command', 'Build SQL requests with your voice'),
-                        _PlanFeature(Icons.code_rounded, 'Advanced queries', 'SELECT, INSERT, UPDATE, DELETE, DDL and DML'),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _PlanCard(
-                      title: 'Free',
-                      subtitle: 'Try DBPilot with no commitment',
-                      icon: Icons.near_me_rounded,
-                      features: const [
-                        _PlanFeature(Icons.link_rounded, 'Up to 3 connections', '1 connection per provider'),
-                        _PlanFeature(Icons.history_rounded, 'Limited history', 'Last 10 queries'),
-                        _PlanFeature(Icons.description_rounded, 'Export to CSV only', 'Basic result sharing'),
-                        _PlanFeature(Icons.code_rounded, 'SELECT queries only', 'Ideal for safe quick tests'),
-                      ],
-                    ),
+                    _ProPrice(price: priceLabel, loading: _loadingProduct),
                   ],
                 ),
               ),
@@ -2420,8 +2529,11 @@ class _PaywallScreenState extends State<_PaywallScreen> {
               _PaywallActions(
                 busy: _loadingProduct || _buying,
                 price: priceLabel,
-                onUpgrade: _loadingProduct || _buying || product == null ? null : _buyPro,
-                onRestore: _loadingProduct || _buying ? null : _restorePurchases,
+                onUpgrade: _loadingProduct || _buying || product == null
+                    ? null
+                    : _buyPro,
+                onRestore:
+                    _loadingProduct || _buying ? null : _restorePurchases,
                 onContinue: () => Navigator.of(context).pop(),
               ),
             ],
@@ -2444,23 +2556,40 @@ class _PaywallHero extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(AppAssets.appIcon, width: 44, height: 44),
+            Image.asset(AppAssets.appIcon, width: 40, height: 40),
             const SizedBox(width: 10),
             const Text(
               'DBPilot',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 0),
+              style: TextStyle(
+                  fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 0),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1D7BF2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'PRO',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         const Text(
-          'Unlock the full potential of DBPilot',
+          'Your database workspace, without limits',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, height: 1.08, letterSpacing: 0),
+          style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              height: 1.12,
+              letterSpacing: 0),
         ),
         const SizedBox(height: 10),
         Text(
-          'Work without limits: more connections, more history, more export formats and full access to advanced queries.',
+          'Everything you need to connect, query and export with confidence.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: Colors.white.withOpacity(0.72),
@@ -2472,82 +2601,26 @@ class _PaywallHero extends StatelessWidget {
   }
 }
 
-class _PlanCard extends StatelessWidget {
-  const _PlanCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.features,
-    this.featured = false,
-    this.badge,
-    this.price,
-  });
+class _ProBenefits extends StatelessWidget {
+  const _ProBenefits({required this.features});
 
-  final String title;
-  final String subtitle;
-  final IconData icon;
   final List<_PlanFeature> features;
-  final bool featured;
-  final String? badge;
-  final String? price;
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = featured ? const Color(0xFF2D8CFF) : Colors.white.withOpacity(0.16);
-
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: featured ? const Color(0xFF10133A).withOpacity(0.92) : const Color(0xFF111827).withOpacity(0.9),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: borderColor.withOpacity(featured ? 0.9 : 1)),
-        boxShadow: featured
-            ? [
-                BoxShadow(
-                  color: const Color(0xFF8D4DFF).withOpacity(0.24),
-                  blurRadius: 28,
-                  offset: const Offset(0, 14),
-                ),
-              ]
-            : null,
+        color: const Color(0xFF0C1527),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF24344E)),
       ),
       child: Column(
         children: [
-          if (badge != null)
-            Align(
-              alignment: Alignment.topRight,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFFB53DFF)]),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
-                    const SizedBox(width: 6),
-                    Text(badge!, style: const TextStyle(fontWeight: FontWeight.w900)),
-                  ],
-                ),
-              ),
-            ),
-          Icon(icon, color: featured ? const Color(0xFF2D8CFF) : const Color(0xFF7D73FF), size: 42),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 0)),
-          const SizedBox(height: 4),
-          Text(subtitle, style: TextStyle(color: featured ? const Color(0xFFB99CFF) : const Color(0xFFC2B8FF))),
-          if (price != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              price!,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-            ),
-          ],
-          const SizedBox(height: 18),
           for (var i = 0; i < features.length; i++) ...[
-            if (i > 0) Divider(color: Colors.white.withOpacity(0.1), height: 18),
-            _PlanFeatureRow(feature: features[i], featured: featured),
+            if (i > 0)
+              Divider(color: Colors.white.withOpacity(0.08), height: 1),
+            _PlanFeatureRow(feature: features[i]),
           ],
         ],
       ),
@@ -2564,36 +2637,77 @@ class _PlanFeature {
 }
 
 class _PlanFeatureRow extends StatelessWidget {
-  const _PlanFeatureRow({required this.feature, required this.featured});
+  const _PlanFeatureRow({required this.feature});
 
   final _PlanFeature feature;
-  final bool featured;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: featured ? const Color(0xFF092B4E) : const Color(0xFF1B2030),
-            borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B315A),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(feature.icon, color: const Color(0xFF48A7FF), size: 20),
           ),
-          child: Icon(feature.icon, color: featured ? const Color(0xFF21B8FF) : const Color(0xFF8B7BFF), size: 24),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(feature.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0)),
-              const SizedBox(height: 3),
-              Text(feature.subtitle, style: TextStyle(color: Colors.white.withOpacity(0.72), height: 1.25)),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(feature.title,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0)),
+                const SizedBox(height: 3),
+                Text(feature.subtitle,
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.66), height: 1.25)),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
+          const Icon(Icons.check_circle_rounded,
+              color: Color(0xFF41D69B), size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProPrice extends StatelessWidget {
+  const _ProPrice({required this.price, required this.loading});
+
+  final String? price;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
         ),
-      ],
+      );
+    }
+
+    return Text(
+      price == null ? 'Subscription price unavailable' : '$price / month',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: price == null ? Colors.white60 : Colors.white,
+        fontSize: price == null ? 14 : 20,
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 }
@@ -2629,15 +2743,17 @@ class _PaywallActions extends StatelessWidget {
             height: 54,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF1EA7FF), Color(0xFFB536F5)]),
-                borderRadius: BorderRadius.circular(14),
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF1EA7FF), Color(0xFFB536F5)]),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: FilledButton.icon(
                 onPressed: onUpgrade,
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
                 icon: busy
                     ? const SizedBox(
@@ -2647,8 +2763,11 @@ class _PaywallActions extends StatelessWidget {
                       )
                     : const Icon(Icons.workspace_premium_rounded),
                 label: Text(
-                  price == null ? 'Upgrade to Pro' : 'Upgrade to Pro · $price',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  price == null
+                      ? 'Start DBPilot Pro'
+                      : 'Start DBPilot Pro - $price',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w900),
                 ),
               ),
             ),
@@ -2668,18 +2787,28 @@ class _PaywallActions extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white.withOpacity(0.78),
                 side: BorderSide(color: Colors.white.withOpacity(0.24)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('Continue with Free', style: TextStyle(fontWeight: FontWeight.w800)),
+              child: const Text('Continue with Free',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
             ),
           ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.shield_outlined, size: 14, color: Color(0xFFB38CFF)),
+              const Icon(Icons.shield_outlined,
+                  size: 14, color: Color(0xFFB38CFF)),
               const SizedBox(width: 6),
-              Text('No credit card required. Upgrade anytime.', style: TextStyle(color: Colors.white.withOpacity(0.62), fontSize: 12)),
+              Flexible(
+                child: Text(
+                  'Secure payment managed by your app store. Cancel anytime.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.62), fontSize: 12),
+                ),
+              ),
             ],
           ),
         ],
