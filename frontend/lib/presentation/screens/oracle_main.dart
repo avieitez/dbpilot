@@ -7,9 +7,11 @@ class OracleMain extends StatelessWidget {
   const OracleMain({
     super.key,
     required this.connection,
+    required this.onUpgradeRequested,
   });
 
   final ConnectionRequest connection;
+  final Future<void> Function() onUpgradeRequested;
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +25,7 @@ class OracleMain extends StatelessWidget {
       providerLabel: 'ORACLE',
       connectionSummary: '${connection.name}\n${connection.host} / $targetName',
       connection: connection,
+      onUpgradeRequested: onUpgradeRequested,
       loadFromBackend: true,
       initialCategories: const [],
     );

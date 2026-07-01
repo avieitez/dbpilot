@@ -23,6 +23,7 @@ class AppUserSession {
     required this.email,
     required this.displayName,
     required this.photoUrl,
+    required this.emailVerified,
     required this.plan,
   });
 
@@ -30,7 +31,11 @@ class AppUserSession {
   final String? email;
   final String? displayName;
   final String? photoUrl;
+  final bool emailVerified;
   final SubscriptionPlan plan;
+
+  bool get hasVerifiedEmail =>
+      emailVerified && email != null && email!.trim().isNotEmpty;
 }
 
 class AuthService {
@@ -85,6 +90,7 @@ class AuthService {
       email: user.email,
       displayName: user.displayName,
       photoUrl: user.photoURL,
+      emailVerified: user.emailVerified,
       plan: plan,
     );
   }

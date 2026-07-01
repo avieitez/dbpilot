@@ -7,9 +7,11 @@ class PostgreSqlMain extends StatelessWidget {
   const PostgreSqlMain({
     super.key,
     required this.connection,
+    required this.onUpgradeRequested,
   });
 
   final ConnectionRequest connection;
+  final Future<void> Function() onUpgradeRequested;
 
   @override
   Widget build(BuildContext context) {
@@ -17,8 +19,10 @@ class PostgreSqlMain extends StatelessWidget {
 
     return DbObjectExplorerShell(
       providerLabel: 'POSTGRESQL',
-      connectionSummary: '${connection.name}\n${connection.host} / ${databaseName.isEmpty ? 'database required' : databaseName}',
+      connectionSummary:
+          '${connection.name}\n${connection.host} / ${databaseName.isEmpty ? 'database required' : databaseName}',
       connection: connection,
+      onUpgradeRequested: onUpgradeRequested,
     );
   }
 }

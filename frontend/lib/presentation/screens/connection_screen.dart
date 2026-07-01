@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/connection_api_service.dart';
+import '../../services/plan_access_service.dart';
 import '../../services/saved_connection_storage_service.dart';
 import '../widgets/provider_selector_card.dart';
 import 'oracle_main.dart';
@@ -16,10 +17,12 @@ class ConnectionScreen extends StatefulWidget {
     super.key,
     this.initialData,
     this.duplicate = false,
+    required this.onUpgradeRequested,
   });
 
   final Map<String, dynamic>? initialData;
   final bool duplicate;
+  final Future<void> Function() onUpgradeRequested;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -96,7 +99,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _sidController.clear();
   }
 
-  void _applyDataToControllers(Map<String, dynamic> data, DatabaseProvider provider) {
+  void _applyDataToControllers(
+      Map<String, dynamic> data, DatabaseProvider provider) {
     _nameController.text = data['name']?.toString() ?? '';
     _hostController.text = data['host']?.toString() ?? 'localhost';
     _portController.text = (data['port']?.toString().isNotEmpty ?? false)
@@ -109,9 +113,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     } else {
       _passwordController.clear();
     }
-    _serviceNameController.text = (data['serviceName']?.toString().isNotEmpty ?? false)
-        ? data['serviceName'].toString()
-        : '23ai_34ui2';
+    _serviceNameController.text =
+        (data['serviceName']?.toString().isNotEmpty ?? false)
+            ? data['serviceName'].toString()
+            : '23ai_34ui2';
     _sidController.text = data['sid']?.toString() ?? '';
     _encrypt = data['encrypt'] == true;
     _trustServerCertificate = data['trustServerCertificate'] != false;
@@ -168,25 +173,34 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ? null
               : _sidController.text.trim()
           : null,
-      encrypt: _selectedProvider == DatabaseProvider.sqlServer ? _encrypt : false,
+      encrypt:
+          _selectedProvider == DatabaseProvider.sqlServer ? _encrypt : false,
       trustServerCertificate: _selectedProvider == DatabaseProvider.sqlServer
           ? _trustServerCertificate
           : false,
     );
   }
 
-
   Future<void> _openProviderMain(ConnectionRequest request) async {
     Widget screen;
     switch (request.provider) {
       case DatabaseProvider.sqlServer:
-        screen = SqlServerMain(connection: request);
+        screen = SqlServerMain(
+          connection: request,
+          onUpgradeRequested: widget.onUpgradeRequested,
+        );
         break;
       case DatabaseProvider.postgresql:
-        screen = PostgreSqlMain(connection: request);
+        screen = PostgreSqlMain(
+          connection: request,
+          onUpgradeRequested: widget.onUpgradeRequested,
+        );
         break;
       case DatabaseProvider.oracle:
-        screen = OracleMain(connection: request);
+        screen = OracleMain(
+          connection: request,
+          onUpgradeRequested: widget.onUpgradeRequested,
+        );
         break;
     }
 
@@ -231,8 +245,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         return;
       }
 
-      final connectionId =
-          _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      final connectionId = _editingConnectionId ??
+          DateTime.now().millisecondsSinceEpoch.toString();
 
       await _storageService.saveConnection(
         request,
@@ -255,11 +269,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-
   Future<void> _saveConnection() async {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
+    if (!await _canSaveForCurrentPlan(request.provider)) return;
     final nameError = await _validateUniqueConnectionName(request.name);
     if (nameError != null) {
       if (!mounted) return;
@@ -270,8 +284,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return;
     }
 
-    final connectionId =
-        _editingConnectionId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    final connectionId = _editingConnectionId ??
+        DateTime.now().millisecondsSinceEpoch.toString();
 
     await _storageService.saveConnection(
       request,
@@ -291,6 +305,46 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     Navigator.of(context).pop(true);
   }
 
+  Future<bool> _canSaveForCurrentPlan(DatabaseProvider provider) async {
+    if (_isEditing || PlanAccessService.instance.isPro) return true;
+
+    final connections = await _storageService.getSavedConnections();
+    final providerAlreadyUsed = connections.any(
+      (connection) =>
+          DatabaseProviderX.fromString(
+            connection['provider']?.toString() ?? '',
+          ) ==
+          provider,
+    );
+    final allowed = PlanAccessService.instance.canCreateConnection(
+      connectionCount: connections.length,
+      providerAlreadyUsed: providerAlreadyUsed,
+    );
+    if (allowed || !mounted) return allowed;
+
+    final upgrade = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('DBPilot Pro'),
+        content: const Text(
+          'Free accounts can save up to 3 connections, with one connection per database provider.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('View Pro'),
+          ),
+        ],
+      ),
+    );
+    if (upgrade == true) await widget.onUpgradeRequested();
+    return false;
+  }
+
   Future<String?> _validateUniqueConnectionName(String name) async {
     final normalizedName = name.trim().toLowerCase();
     if (normalizedName.isEmpty) return 'Enter a name for this connection';
@@ -302,7 +356,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       final connectionId = connection['id']?.toString();
       if (currentId != null && connectionId == currentId) continue;
 
-      final existingName = connection['name']?.toString().trim().toLowerCase() ?? '';
+      final existingName =
+          connection['name']?.toString().trim().toLowerCase() ?? '';
       if (existingName == normalizedName) {
         return 'A connection with this name already exists.';
       }
@@ -447,7 +502,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     super.dispose();
   }
 
-
   Widget _buildProviderCards() {
     return Row(
       children: DatabaseProvider.values.map((provider) {
@@ -465,7 +519,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 provider: provider,
                 selected: isSelectedProvider,
                 enabled: providerEnabled,
-                onTap: providerEnabled ? () => _onProviderSelected(provider) : () {},
+                onTap: providerEnabled
+                    ? () => _onProviderSelected(provider)
+                    : () {},
               ),
             ),
           ),
@@ -540,7 +596,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         suffixIcon: IconButton(
           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
           icon: Icon(
-            _obscurePassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+            _obscurePassword
+                ? Icons.visibility_rounded
+                : Icons.visibility_off_rounded,
           ),
         ),
       ),
@@ -595,7 +653,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 hint: '23ai_34ui2',
                 validator: (value) {
                   final sidValue = _sidController.text.trim();
-                  if ((value == null || value.trim().isEmpty) && sidValue.isEmpty) {
+                  if ((value == null || value.trim().isEmpty) &&
+                      sidValue.isEmpty) {
                     return 'Enter a service name or SID';
                   }
                   return null;
@@ -622,7 +681,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Trust server certificate'),
                 value: _trustServerCertificate,
-                onChanged: (value) => setState(() => _trustServerCertificate = value),
+                onChanged: (value) =>
+                    setState(() => _trustServerCertificate = value),
               ),
             ],
           ],
@@ -712,7 +772,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 ),
                 label: Text(
                   _isEditing ? AppStrings.update : AppStrings.safe,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.w800),
                 ),
               ),
             ),

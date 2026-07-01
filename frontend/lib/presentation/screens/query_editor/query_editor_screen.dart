@@ -12,6 +12,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/connection_request.dart';
 import '../../../services/connection_api_service.dart';
+import '../../../services/plan_access_service.dart';
 import '../../../core/strings/strings.dart';
 
 import '../../../services/query_history_storage_service.dart';
@@ -27,6 +28,7 @@ class QueryEditorScreen extends StatefulWidget {
     this.objectType,
     this.schemaName,
     this.objectColumns = const [],
+    required this.onUpgradeRequested,
   });
 
   final ConnectionRequest connection;
@@ -37,6 +39,7 @@ class QueryEditorScreen extends StatefulWidget {
   final String? objectType;
   final String? schemaName;
   final List<String> objectColumns;
+  final Future<void> Function() onUpgradeRequested;
 
   static void clearSessionCache() {
     _QueryEditorScreenState._sessionSnapshots.clear();
@@ -89,17 +92,24 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   double get _effectiveEditorLineHeight => _editorFontSize * 1.5;
 
-  bool get _isHighContrastEditor => _editorTheme.toLowerCase().contains('contrast');
+  bool get _isHighContrastEditor =>
+      _editorTheme.toLowerCase().contains('contrast');
 
-  Color get _editorBackgroundColor => _isHighContrastEditor ? const Color(0xFF000000) : const Color(0xFF07101B);
+  Color get _editorBackgroundColor =>
+      _isHighContrastEditor ? const Color(0xFF000000) : const Color(0xFF07101B);
 
-  Color get _editorTextColor => _isHighContrastEditor ? Colors.white : const Color(0xFFD6E2F0);
+  Color get _editorTextColor =>
+      _isHighContrastEditor ? Colors.white : const Color(0xFFD6E2F0);
 
   Color _editorBorderColor(ColorScheme colors) {
     if (_editorFocusNode.hasFocus) {
-      return _isHighContrastEditor ? const Color(0xFFFFD866) : colors.primary.withOpacity(0.75);
+      return _isHighContrastEditor
+          ? const Color(0xFFFFD866)
+          : colors.primary.withOpacity(0.75);
     }
-    return _isHighContrastEditor ? Colors.white.withOpacity(0.42) : colors.outlineVariant.withOpacity(0.55);
+    return _isHighContrastEditor
+        ? Colors.white.withOpacity(0.42)
+        : colors.outlineVariant.withOpacity(0.55);
   }
 
   @override
@@ -149,13 +159,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _timeoutSeconds = prefs.getInt('settings.defaultTimeout') ?? 30;
       _limit = prefs.getInt('settings.defaultLimit') ?? 100;
       _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
-      _confirmDangerousQueries = prefs.getBool('settings.confirmDangerousQueries') ?? true;
+      _confirmDangerousQueries =
+          prefs.getBool('settings.confirmDangerousQueries') ?? true;
       _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
       _autoFormatOnLoad = prefs.getBool('settings.autoFormatOnLoad') ?? false;
       _exportHeaders = prefs.getBool('settings.exportHeaders') ?? true;
       _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
-      _defaultExportFormat = prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _defaultExportFormat =
+          prefs.getString('settings.defaultExportFormat') ?? 'CSV';
       _sqlController.highContrast = _isHighContrastEditor;
     });
 
@@ -209,38 +221,53 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     switch (provider) {
       case DatabaseProvider.sqlServer:
         final qualified = _sqlServerQualifiedName(objectName, schemaName);
-        if (type == 'procedure' || type == 'stored_procedure') return 'EXEC $qualified;';
+        if (type == 'procedure' || type == 'stored_procedure')
+          return 'EXEC $qualified;';
         if (type == 'function') return 'SELECT *\nFROM $qualified();';
-        if (type == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (type == 'trigger')
+          return '-- Trigger $qualified. Open definition to inspect trigger source.';
         return 'SELECT *\nFROM $qualified;';
       case DatabaseProvider.postgresql:
-        final qualified = _quotedQualifiedName(objectName, schemaName ?? 'public', '"');
+        final qualified =
+            _quotedQualifiedName(objectName, schemaName ?? 'public', '"');
         if (type == 'function') return 'SELECT *\nFROM $qualified();';
-        if (type == 'procedure' || type == 'stored_procedure') return 'CALL $qualified();';
-        if (type == 'extension') return '-- Extension $objectName. No preview query available.';
+        if (type == 'procedure' || type == 'stored_procedure')
+          return 'CALL $qualified();';
+        if (type == 'extension')
+          return '-- Extension $objectName. No preview query available.';
         return 'SELECT *\nFROM $qualified;';
       case DatabaseProvider.oracle:
         final qualified = _oracleQualifiedName(objectName, schemaName);
-        if (type == 'procedure' || type == 'stored_procedure') return 'BEGIN\n  $qualified;\nEND;';
-        if (type == 'function') return 'SELECT $qualified() AS VALUE\nFROM dual;';
-        if (type == 'package') return '-- Package $qualified. Open definition to inspect package source.';
-        if (type == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
-        if (type == 'sequence') return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
+        if (type == 'procedure' || type == 'stored_procedure')
+          return 'BEGIN\n  $qualified;\nEND;';
+        if (type == 'function')
+          return 'SELECT $qualified() AS VALUE\nFROM dual;';
+        if (type == 'package')
+          return '-- Package $qualified. Open definition to inspect package source.';
+        if (type == 'trigger')
+          return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (type == 'sequence')
+          return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
         return 'SELECT *\nFROM $qualified;';
     }
   }
 
   String _sqlServerQualifiedName(String objectName, String? schemaName) {
-    String clean(String value) => value.replaceAll('[', '').replaceAll(']', '').trim();
-    final schema = clean((schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
+    String clean(String value) =>
+        value.replaceAll('[', '').replaceAll(']', '').trim();
+    final schema = clean(
+        (schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
     return '[${clean(schema)}].[${clean(objectName)}]';
   }
 
-  String _quotedQualifiedName(String objectName, String schemaName, String quote) {
+  String _quotedQualifiedName(
+      String objectName, String schemaName, String quote) {
     String clean(String value) => value.replaceAll(quote, quote + quote).trim();
     final schema = clean(schemaName);
     final name = clean(objectName);
-    return schema.isEmpty ? '$quote$name$quote' : '$quote$schema$quote.$quote$name$quote';
+    return schema.isEmpty
+        ? '$quote$name$quote'
+        : '$quote$schema$quote.$quote$name$quote';
   }
 
   String _oracleQualifiedName(String objectName, String? schemaName) {
@@ -253,6 +280,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final sql = _sqlController.text.trim();
     if (sql.isEmpty) {
       _addMessage(QeStrings.noSqlToRun);
+      return;
+    }
+
+    if (_isDataModificationStatement(sql) &&
+        !await _requirePro(ProFeature.advancedSql)) {
       return;
     }
 
@@ -288,13 +320,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       sqlToExecute = _prepareOracleSql(sqlToExecute);
     }
     try {
-      final result = await _apiService.executeQuery(
-        widget.connection,
-        sqlToExecute,
-        limit: _limit,
-        allowDataModification: !_safeMode,
-        timeoutSeconds: _timeoutSeconds,
-      ).timeout(Duration(seconds: _timeoutSeconds));
+      final result = await _apiService
+          .executeQuery(
+            widget.connection,
+            sqlToExecute,
+            limit: _limit,
+            allowDataModification: !_safeMode,
+            timeoutSeconds: _timeoutSeconds,
+          )
+          .timeout(Duration(seconds: _timeoutSeconds));
 
       watch.stop();
       _lastSuccessfulSql = sqlToExecute;
@@ -306,7 +340,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         _lastDuration = watch.elapsed;
         _executing = false;
         _resultsPage = 0;
-        _history.insert(0, _HistoryEntry(sql: sql, dateTime: DateTime.now(), message: result.message));
+        _history.insert(
+            0,
+            _HistoryEntry(
+                sql: sql, dateTime: DateTime.now(), message: result.message));
         if (_history.length > 50) _history.removeLast();
       });
       _addMessage(
@@ -489,7 +526,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     await Clipboard.setData(
-      ClipboardData(text: _resultsAsDelimitedText(result, '\t', includeHeaders: _exportHeaders)),
+      ClipboardData(
+          text: _resultsAsDelimitedText(result, '\t',
+              includeHeaders: _exportHeaders)),
     );
 
     _addMessage('Results copied to clipboard.');
@@ -505,7 +544,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     try {
       await _shareTextFile(
-        content: _resultsAsDelimitedText(result, _csvSeparator, includeHeaders: _exportHeaders),
+        content: _resultsAsDelimitedText(result, _csvSeparator,
+            includeHeaders: _exportHeaders),
         fileName: 'results_${_exportTimestamp()}.csv',
         shareText: 'Query results CSV',
       );
@@ -517,6 +557,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Future<void> _exportResultsToJson() async {
+    if (!await _requirePro(ProFeature.exportFormats)) return;
     final result = _result;
 
     if (result == null || result.rows.isEmpty) {
@@ -539,6 +580,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Future<void> _exportResultsToExcel() async {
+    if (!await _requirePro(ProFeature.exportFormats)) return;
     final result = _result;
 
     if (result == null || result.rows.isEmpty) {
@@ -548,7 +590,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
     try {
       await _shareTextFile(
-        content: _resultsAsDelimitedText(result, '\t', includeHeaders: _exportHeaders),
+        content: _resultsAsDelimitedText(result, '\t',
+            includeHeaders: _exportHeaders),
         fileName: 'results_${_exportTimestamp()}.xls',
         shareText: 'Query results Excel',
       );
@@ -580,7 +623,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     );
     final currentConnectionName = widget.connection.name.trim().toLowerCase();
     final queries = providerQueries
-        .where((query) => query.connectionName.trim().toLowerCase() == currentConnectionName)
+        .where((query) =>
+            query.connectionName.trim().toLowerCase() == currentConnectionName)
         .toList();
 
     if (!mounted) return;
@@ -682,6 +726,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             Future<void> toggleDictation() async {
+              if (!await _requirePro(ProFeature.voiceSql)) return;
               if (listening) {
                 await speech.stop();
                 setSheetState(() => listening = false);
@@ -721,7 +766,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   promptText = result.recognizedWords;
                   promptController.value = TextEditingValue(
                     text: promptText,
-                    selection: TextSelection.collapsed(offset: promptText.length),
+                    selection:
+                        TextSelection.collapsed(offset: promptText.length),
                   );
                 },
               );
@@ -775,14 +821,16 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                         const SizedBox(width: 8),
                         Text(
                           'Build SQL',
-                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                          style: theme.textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'English only. SELECT, INSERT, UPDATE, DELETE, WHERE, ORDER BY and LIMIT requests are supported.',
-                      style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: colors.onSurfaceVariant),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -792,7 +840,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
                       decoration: const InputDecoration(
-                        hintText: 'Example: update table customers set status active where id equals 10',
+                        hintText:
+                            'Example: update table customers set status active where id equals 10',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -801,7 +850,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         onPressed: toggleDictation,
-                        icon: Icon(listening ? Icons.mic_rounded : Icons.mic_none_rounded),
+                        icon: Icon(listening
+                            ? Icons.mic_rounded
+                            : Icons.mic_none_rounded),
                         label: Text(listening ? 'Listening...' : 'Dictate'),
                       ),
                     ),
@@ -827,7 +878,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                         decoration: BoxDecoration(
                           color: const Color(0xFF07101B),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: colors.outlineVariant.withOpacity(0.5)),
+                          border: Border.all(
+                              color: colors.outlineVariant.withOpacity(0.5)),
                         ),
                         child: SingleChildScrollView(
                           child: SelectableText(
@@ -843,7 +895,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                         const SizedBox(height: 8),
                         Text(
                           generated!.message,
-                          style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
                         ),
                       ],
                       const SizedBox(height: 12),
@@ -875,7 +928,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     );
 
     await speech.stop();
-    Future<void>.delayed(const Duration(milliseconds: 250), promptController.dispose);
+    Future<void>.delayed(
+        const Duration(milliseconds: 250), promptController.dispose);
 
     if (!mounted || sqlToInsert == null || sqlToInsert.trim().isEmpty) return;
 
@@ -887,6 +941,31 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _editorFocusNode.requestFocus();
       _addMessage('SQL generated locally. Review it before running.');
     });
+  }
+
+  Future<bool> _requirePro(ProFeature feature) async {
+    if (PlanAccessService.instance.canUse(feature)) return true;
+
+    final upgrade = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('DBPilot Pro'),
+        content: Text('${feature.title} is available with DBPilot Pro.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('View Pro'),
+          ),
+        ],
+      ),
+    );
+
+    if (upgrade == true) await widget.onUpgradeRequested();
+    return false;
   }
 
   String _formatDateTime(DateTime value) {
@@ -976,7 +1055,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     final colors = theme.colorScheme;
 
     return PopScope(
-      canPop: _allowPopAfterPendingSaveAttempt || !_hasPendingSuccessfulQuerySave,
+      canPop:
+          _allowPopAfterPendingSaveAttempt || !_hasPendingSuccessfulQuerySave,
       onPopInvoked: _handlePendingSaveBeforePop,
       child: Scaffold(
         resizeToAvoidBottomInset: false,
@@ -985,15 +1065,23 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${widget.providerLabel} · Query Editor', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-              Text(widget.connectionSummary.replaceAll('\n', ' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+              Text('${widget.providerLabel} · Query Editor',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Text(widget.connectionSummary.replaceAll('\n', ' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: colors.onSurfaceVariant)),
             ],
           ),
         ),
         body: SafeArea(
           child: Column(
             children: [
-              _QueryTabs(selectedIndex: _selectedTab, onChanged: (index) => setState(() => _selectedTab = index)),
+              _QueryTabs(
+                  selectedIndex: _selectedTab,
+                  onChanged: (index) => setState(() => _selectedTab = index)),
               _buildToolbar(theme, colors),
               Expanded(
                 child: IndexedStack(
@@ -1067,7 +1155,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                               enableSuggestions: false,
                               scrollPadding: const EdgeInsets.only(bottom: 180),
                               onTapOutside: (_) {},
-                              cursorColor: _isHighContrastEditor ? const Color(0xFFFFFF00) : colors.secondary,
+                              cursorColor: _isHighContrastEditor
+                                  ? const Color(0xFFFFFF00)
+                                  : colors.secondary,
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: _editorTextColor,
                                 fontFamily: 'monospace',
@@ -1077,9 +1167,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                               ),
                               decoration: InputDecoration(
                                 hintText: QeStrings.sqlHint,
-                                hintStyle: TextStyle(color: colors.onSurfaceVariant.withOpacity(0.55)),
+                                hintStyle: TextStyle(
+                                    color: colors.onSurfaceVariant
+                                        .withOpacity(0.55)),
                                 border: InputBorder.none,
-                                contentPadding: const EdgeInsets.fromLTRB(14, 16, 18, 18),
+                                contentPadding:
+                                    const EdgeInsets.fromLTRB(14, 16, 18, 18),
                               ),
                             ),
                           ),
@@ -1113,11 +1206,24 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
       child: Row(
         children: [
-          Expanded(child: _ToolbarButton(icon: Icons.auto_fix_high_rounded, label: QeStrings.formatSql, onTap: _formatSql)),
+          Expanded(
+              child: _ToolbarButton(
+                  icon: Icons.auto_fix_high_rounded,
+                  label: QeStrings.formatSql,
+                  onTap: _formatSql)),
           const SizedBox(width: 6),
-          Expanded(child: _ToolbarButton(icon: Icons.construction_rounded, label: QeStrings.buildSql, onTap: _showSqlBuilderSheet)),
+          Expanded(
+              child: _ToolbarButton(
+                  icon: Icons.construction_rounded,
+                  label: QeStrings.buildSql,
+                  onTap: _showSqlBuilderSheet)),
           const SizedBox(width: 6),
-          Expanded(child: _ToolbarButton(icon: Icons.folder_open_rounded, label: QeStrings.loadQuery, onTap: _showLoadQueryDialog,)),
+          Expanded(
+              child: _ToolbarButton(
+            icon: Icons.folder_open_rounded,
+            label: QeStrings.loadQuery,
+            onTap: _showLoadQueryDialog,
+          )),
           const SizedBox(width: 6),
           Expanded(
             child: _ToolbarButton(
@@ -1142,8 +1248,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       'OR',
       'GROUP BY',
       'ORDER BY',
-      if (widget.connection.provider == DatabaseProvider.sqlServer) 'TOP'
-      else 'LIMIT',
+      if (widget.connection.provider == DatabaseProvider.sqlServer)
+        'TOP'
+      else
+        'LIMIT',
       'INSERT',
       'UPDATE',
       'DELETE',
@@ -1190,12 +1298,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     _editorFocusNode.requestFocus();
   }
 
-  int _lineCount(String text) => ('\n'.allMatches(text).length + 1).clamp(1, 9999).toInt();
+  int _lineCount(String text) =>
+      ('\n'.allMatches(text).length + 1).clamp(1, 9999).toInt();
 
   String _cursorPositionLabel(TextEditingValue value) {
     final text = value.text;
     final selectionStart = value.selection.start;
-    final offset = selectionStart < 0 ? text.length : selectionStart.clamp(0, text.length).toInt();
+    final offset = selectionStart < 0
+        ? text.length
+        : selectionStart.clamp(0, text.length).toInt();
     final beforeCursor = text.substring(0, offset);
     final line = '\n'.allMatches(beforeCursor).length + 1;
     final lastBreak = beforeCursor.lastIndexOf('\n');
@@ -1216,16 +1327,21 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
           decoration: BoxDecoration(
             color: colors.surface,
-            border: Border(top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
+            border: Border(
+                top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
           ),
           child: Row(
             children: [
               const Spacer(),
               Tooltip(
-                message: _safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription,
+                message: _safeMode
+                    ? QeStrings.safeModeOnDescription
+                    : QeStrings.safeModeOffDescription,
                 child: IconButton.filledTonal(
                   onPressed: () => _setSafeMode(!_safeMode),
-                  icon: Icon(_safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded),
+                  icon: Icon(_safeMode
+                      ? Icons.shield_outlined
+                      : Icons.warning_amber_rounded),
                   color: _safeMode ? colors.primary : colors.error,
                 ),
               ),
@@ -1241,7 +1357,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
         decoration: BoxDecoration(
           color: colors.surface,
-          border: Border(top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
+          border: Border(
+              top: BorderSide(color: colors.outlineVariant.withOpacity(0.5))),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1249,33 +1366,64 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: _safeMode ? colors.surfaceContainerHighest.withOpacity(0.45) : colors.errorContainer.withOpacity(0.7),
+                color: _safeMode
+                    ? colors.surfaceContainerHighest.withOpacity(0.45)
+                    : colors.errorContainer.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _safeMode ? colors.outlineVariant.withOpacity(0.5) : colors.error.withOpacity(0.6)),
+                border: Border.all(
+                    color: _safeMode
+                        ? colors.outlineVariant.withOpacity(0.5)
+                        : colors.error.withOpacity(0.6)),
               ),
               child: Row(
                 children: [
-                  Icon(_safeMode ? Icons.shield_outlined : Icons.warning_amber_rounded, color: _safeMode ? colors.primary : colors.error),
+                  Icon(
+                      _safeMode
+                          ? Icons.shield_outlined
+                          : Icons.warning_amber_rounded,
+                      color: _safeMode ? colors.primary : colors.error),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(QeStrings.safeMode, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
-                        Text(_safeMode ? QeStrings.safeModeOnDescription : QeStrings.safeModeOffDescription, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+                        Text(QeStrings.safeMode,
+                            style: theme.textTheme.labelLarge
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(
+                            _safeMode
+                                ? QeStrings.safeModeOnDescription
+                                : QeStrings.safeModeOffDescription,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: colors.onSurfaceVariant)),
                       ],
                     ),
                   ),
-                  Switch(value: _safeMode, onChanged: (value) => _setSafeMode(value)),
+                  Switch(
+                      value: _safeMode,
+                      onChanged: (value) => _setSafeMode(value)),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(child: _DropDownBox<int>(label: QeStrings.limit, value: _limit, values: const [50, 100, 250, 500], onChanged: (value) => _setLimit(value))),
+                Expanded(
+                    child: _DropDownBox<int>(
+                        label: QeStrings.limit,
+                        value: _limit,
+                        values: const [50, 100, 250, 500],
+                        onChanged: (value) => _setLimit(value))),
                 const SizedBox(width: 8),
-                Expanded(child: _DropDownBox<int>(label: QeStrings.timeout, value: _timeoutSeconds, values: const [10, 30, 60], suffix: 's', onChanged: (value) => _setTimeoutSeconds(value))),
+                Expanded(
+                    child: _DropDownBox<int>(
+                        label: QeStrings.timeout,
+                        value: _timeoutSeconds,
+                        values: const [10, 30, 60],
+                        suffix: 's',
+                        onChanged: (value) => _setTimeoutSeconds(value))),
               ],
             ),
             const SizedBox(height: 8),
@@ -1295,8 +1443,18 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
     if (_errorMessage != null) return _ErrorPanel(message: _errorMessage!);
     final result = _result;
-    if (result == null) return const _EmptyPanel(icon: Icons.table_chart_outlined, title: QeStrings.noResultsTitle, message: QeStrings.noResultsMessage);
-    if (result.columns.isEmpty) return _EmptyPanel(icon: Icons.check_circle_outline_rounded, title: QeStrings.queryExecutedTitle, message: result.message.isEmpty ? QeStrings.commandExecuted : result.message);
+    if (result == null)
+      return const _EmptyPanel(
+          icon: Icons.table_chart_outlined,
+          title: QeStrings.noResultsTitle,
+          message: QeStrings.noResultsMessage);
+    if (result.columns.isEmpty)
+      return _EmptyPanel(
+          icon: Icons.check_circle_outline_rounded,
+          title: QeStrings.queryExecutedTitle,
+          message: result.message.isEmpty
+              ? QeStrings.commandExecuted
+              : result.message);
     if (_isCommandMessageResult(result)) {
       final message = result.rows.isNotEmpty && result.rows.first.isNotEmpty
           ? (result.rows.first.first?.toString() ?? QeStrings.commandExecuted)
@@ -1305,7 +1463,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
 
     final totalRows = result.rows.length;
-    final pageCount = (totalRows / _rowsPerPage).ceil().clamp(1, 999999).toInt();
+    final pageCount =
+        (totalRows / _rowsPerPage).ceil().clamp(1, 999999).toInt();
     final page = _resultsPage.clamp(0, pageCount - 1).toInt();
     final start = page * _rowsPerPage;
     final end = (start + _rowsPerPage).clamp(0, totalRows).toInt();
@@ -1332,7 +1491,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFF0B111D),
                 border: Border(
-                  bottom: BorderSide(color: colors.outlineVariant.withOpacity(0.45)),
+                  bottom: BorderSide(
+                      color: colors.outlineVariant.withOpacity(0.45)),
                 ),
               ),
               child: Row(
@@ -1365,12 +1525,14 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
             ),
             if (!compact)
               Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 8),
+                padding: EdgeInsets.fromLTRB(
+                    horizontalPadding, 12, horizontalPadding, 8),
                 child: _ResultSuccessBanner(message: successMessage),
               ),
             if (!compact)
               Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 10),
+                padding: EdgeInsets.fromLTRB(
+                    horizontalPadding, 0, horizontalPadding, 10),
                 child: _ExportToolbar(
                   hasRows: result.rows.isNotEmpty,
                   onCopy: _copyResultsToClipboard,
@@ -1392,7 +1554,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(horizontalPadding, compact ? 6 : 10, horizontalPadding, compact ? 8 : 12),
+              padding: EdgeInsets.fromLTRB(horizontalPadding, compact ? 6 : 10,
+                  horizontalPadding, compact ? 8 : 12),
               child: _ResultsPager(
                 compact: compact,
                 start: totalRows == 0 ? 0 : start + 1,
@@ -1525,14 +1688,14 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         message: QeStrings.noHistoryMessage,
       );
     }
- 
+
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: _history.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final entry = _history[index];
- 
+
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1554,7 +1717,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     'Query #${_history.length - index}',
                     style: theme.textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w900,
-                      color: colors.onSurface,   // white / bright — matches screenshot
+                      color: colors
+                          .onSurface, // white / bright — matches screenshot
                     ),
                   ),
                   const Spacer(),
@@ -1567,9 +1731,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   ),
                 ],
               ),
- 
+
               const SizedBox(height: 12),
- 
+
               // ── SQL body — monospace, no line limit (full query visible) ──
               SelectableText(
                 entry.sql,
@@ -1579,9 +1743,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   color: colors.onSurface,
                 ),
               ),
- 
+
               const SizedBox(height: 14),
- 
+
               // ── "← LOAD QUERY" — uppercase, matches screenshot ──
               GestureDetector(
                 onTap: () => _loadHistory(entry),
@@ -1614,12 +1778,34 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   bool _isDataModificationStatement(String sql) {
     final firstWord = _firstSqlWord(sql);
-    return const {'insert', 'update', 'delete', 'merge', 'create', 'alter', 'drop', 'truncate', 'exec', 'execute'}.contains(firstWord);
+    return const {
+      'insert',
+      'update',
+      'delete',
+      'merge',
+      'create',
+      'alter',
+      'drop',
+      'truncate',
+      'exec',
+      'execute'
+    }.contains(firstWord);
   }
 
   bool _isDangerousStatement(String sql) {
     final firstWord = _firstSqlWord(sql);
-    return const {'insert', 'update', 'delete', 'merge', 'drop', 'truncate', 'alter', 'create', 'exec', 'execute'}.contains(firstWord);
+    return const {
+      'insert',
+      'update',
+      'delete',
+      'merge',
+      'drop',
+      'truncate',
+      'alter',
+      'create',
+      'exec',
+      'execute'
+    }.contains(firstWord);
   }
 
   String _firstSqlWord(String sql) {
@@ -1641,8 +1827,12 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         title: Text(QeStrings.confirmExecutionTitle),
         content: Text(QeStrings.confirmExecutionMessage(firstWord)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text(QeStrings.cancel)),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text(QeStrings.runQuery)),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(QeStrings.cancel)),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(QeStrings.runQuery)),
         ],
       ),
     );
@@ -1844,7 +2034,8 @@ class _ResultsExportMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
-        PopupMenuItem(value: 'default', child: Text('Export $defaultExportFormat')),
+        PopupMenuItem(
+            value: 'default', child: Text('Export $defaultExportFormat')),
         const PopupMenuItem(value: 'copy', child: Text('Copy')),
         const PopupMenuItem(value: 'csv', child: Text('CSV')),
         const PopupMenuItem(value: 'json', child: Text('JSON')),
@@ -2146,12 +2337,12 @@ class _ResultsPager extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
                 items: const [5, 10, 25, 50]
-                  .map(
-                    (value) => DropdownMenuItem<int>(
-                      value: value,
-                      child: Text(compact ? '$value' : '$value rows'),
-                    ),
-                  )
+                    .map(
+                      (value) => DropdownMenuItem<int>(
+                        value: value,
+                        child: Text(compact ? '$value' : '$value rows'),
+                      ),
+                    )
                     .toList(),
                 onChanged: (value) {
                   if (value != null) onRowsPerPageChanged(value);
@@ -2190,7 +2381,13 @@ class _QueryTabs extends StatelessWidget {
     final labels = QeStrings.tabs;
     return Container(
       height: 48,
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5)))),
+      decoration: BoxDecoration(
+          border: Border(
+              bottom: BorderSide(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(0.5)))),
       child: Row(
         children: List.generate(labels.length, (index) {
           final selected = selectedIndex == index;
@@ -2200,9 +2397,19 @@ class _QueryTabs extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(labels[index], style: TextStyle(fontWeight: selected ? FontWeight.w800 : FontWeight.w500, color: selected ? Theme.of(context).colorScheme.primary : null)),
+                  Text(labels[index],
+                      style: TextStyle(
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w500,
+                          color: selected
+                              ? Theme.of(context).colorScheme.primary
+                              : null)),
                   const SizedBox(height: 8),
-                  AnimatedContainer(duration: const Duration(milliseconds: 160), height: 2, width: selected ? 52 : 0, color: Theme.of(context).colorScheme.primary),
+                  AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      height: 2,
+                      width: selected ? 52 : 0,
+                      color: Theme.of(context).colorScheme.primary),
                 ],
               ),
             ),
@@ -2232,11 +2439,15 @@ class _ToolbarButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         minimumSize: const Size(0, 38),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.2),
+        textStyle: const TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.2),
       ),
       onPressed: onTap,
       icon: busy
-          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2))
           : Icon(icon, size: 16),
       label: FittedBox(child: Text(label)),
     );
@@ -2297,7 +2508,8 @@ class _EditorHeader extends StatelessWidget {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints.tightFor(width: 34, height: 34),
               onPressed: onClear,
-              icon: Icon(Icons.delete_sweep_rounded, size: 19, color: colors.onSurfaceVariant),
+              icon: Icon(Icons.delete_sweep_rounded,
+                  size: 19, color: colors.onSurfaceVariant),
             ),
           ),
           const SizedBox(width: 6),
@@ -2424,7 +2636,12 @@ class _StatusItem extends StatelessWidget {
 }
 
 class _DropDownBox<T> extends StatelessWidget {
-  const _DropDownBox({required this.label, required this.value, required this.values, required this.onChanged, this.suffix = ''});
+  const _DropDownBox(
+      {required this.label,
+      required this.value,
+      required this.values,
+      required this.onChanged,
+      this.suffix = ''});
   final String label;
   final T value;
   final List<T> values;
@@ -2448,7 +2665,10 @@ class _DropDownBox<T> extends StatelessWidget {
               value: value,
               isExpanded: true,
               underline: const SizedBox.shrink(),
-              items: values.map((v) => DropdownMenuItem<T>(value: v, child: Text('$v$suffix'))).toList(),
+              items: values
+                  .map((v) =>
+                      DropdownMenuItem<T>(value: v, child: Text('$v$suffix')))
+                  .toList(),
               onChanged: (v) {
                 if (v != null) onChanged(v);
               },
@@ -2545,7 +2765,8 @@ class _LineNumbersState extends State<_LineNumbers> {
 }
 
 class _EmptyPanel extends StatelessWidget {
-  const _EmptyPanel({required this.icon, required this.title, required this.message});
+  const _EmptyPanel(
+      {required this.icon, required this.title, required this.message});
   final IconData icon;
   final String title;
   final String message;
@@ -2560,9 +2781,15 @@ class _EmptyPanel extends StatelessWidget {
           children: [
             Icon(icon, size: 46),
             const SizedBox(height: 12),
-            Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            Text(title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            Text(message, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium),
           ],
         ),
       ),
@@ -2584,7 +2811,11 @@ class _ErrorPanel extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline_rounded, size: 46),
             const SizedBox(height: 12),
-            Text(QeStrings.sqlErrorTitle, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            Text(QeStrings.sqlErrorTitle,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             SelectableText(message, textAlign: TextAlign.center),
           ],
@@ -2705,7 +2936,8 @@ class _SqlTextEditingController extends TextEditingController {
     'DESC',
     'ASC',
   ];
-  static final Set<String> _keywordNames = _keywords.map((value) => value.toLowerCase()).toSet();
+  static final Set<String> _keywordNames =
+      _keywords.map((value) => value.toLowerCase()).toSet();
 
   final DatabaseProvider provider;
   final Set<String> _functionNames;
@@ -2714,17 +2946,23 @@ class _SqlTextEditingController extends TextEditingController {
   bool highContrast = false;
 
   @override
-  TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
+  TextSpan buildTextSpan(
+      {required BuildContext context,
+      TextStyle? style,
+      required bool withComposing}) {
     final baseStyle = style ?? const TextStyle();
     final spans = <TextSpan>[];
     var index = 0;
 
     for (final match in _tokenPattern.allMatches(text)) {
       if (match.start > index) {
-        spans.add(TextSpan(text: text.substring(index, match.start), style: baseStyle));
+        spans.add(TextSpan(
+            text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
-      spans.add(TextSpan(text: token.toUpperCase(), style: baseStyle.merge(_styleForToken(token, match.end))));
+      spans.add(TextSpan(
+          text: token.toUpperCase(),
+          style: baseStyle.merge(_styleForToken(token, match.end))));
       index = match.end;
     }
 
@@ -2743,13 +2981,18 @@ class _SqlTextEditingController extends TextEditingController {
       );
     }
     if (token.startsWith("'")) {
-      return TextStyle(color: highContrast ? const Color(0xFFFFB000) : const Color(0xFFFFB86C));
+      return TextStyle(
+          color:
+              highContrast ? const Color(0xFFFFB000) : const Color(0xFFFFB86C));
     }
     if (RegExp(r'^\d').hasMatch(token)) {
-      return TextStyle(color: highContrast ? const Color(0xFFFFFF00) : const Color(0xFFFFD866));
+      return TextStyle(
+          color:
+              highContrast ? const Color(0xFFFFFF00) : const Color(0xFFFFD866));
     }
     final normalized = token.toLowerCase();
-    if (_functionNames.contains(normalized) && _isFunctionUsage(normalized, tokenEnd)) {
+    if (_functionNames.contains(normalized) &&
+        _isFunctionUsage(normalized, tokenEnd)) {
       return TextStyle(
         color: highContrast ? const Color(0xFFFF3BFF) : const Color(0xFFFF4FD8),
         fontWeight: FontWeight.w900,
@@ -3115,20 +3358,24 @@ class _ParsedMessage {
   factory _ParsedMessage.fromRaw(String raw) {
     final parts = raw.split(' · ');
     final dateTime = parts.isNotEmpty ? parts.first.trim() : '';
-    final message = parts.length > 1 ? parts.sublist(1).join(' · ').trim() : raw.trim();
+    final message =
+        parts.length > 1 ? parts.sublist(1).join(' · ').trim() : raw.trim();
     final lower = message.toLowerCase();
 
     if (lower.startsWith('error:')) {
       return _ParsedMessage(
         dateTime: dateTime,
         title: 'Error',
-        body: message.replaceFirst(RegExp(r'^ERROR:\s*', caseSensitive: false), ''),
+        body: message.replaceFirst(
+            RegExp(r'^ERROR:\s*', caseSensitive: false), ''),
         kind: _MessageKind.error,
         icon: Icons.error_outline_rounded,
       );
     }
 
-    if (lower.contains('disabled') || lower.contains('cancelled') || lower.contains('blocked')) {
+    if (lower.contains('disabled') ||
+        lower.contains('cancelled') ||
+        lower.contains('blocked')) {
       return _ParsedMessage(
         dateTime: dateTime,
         title: 'Warning',
@@ -3159,7 +3406,8 @@ class _ParsedMessage {
 }
 
 class _HistoryEntry {
-  const _HistoryEntry({required this.sql, required this.dateTime, required this.message});
+  const _HistoryEntry(
+      {required this.sql, required this.dateTime, required this.message});
   final String sql;
   final DateTime dateTime;
   final String message;
@@ -3193,7 +3441,8 @@ class _LocalSqlContext {
 
     for (final column in columnNames) {
       final candidate = _normalizeIdentifier(column);
-      if (candidate.contains(normalized) || normalized.contains(candidate)) return column;
+      if (candidate.contains(normalized) || normalized.contains(candidate))
+        return column;
     }
 
     return null;
@@ -3238,12 +3487,14 @@ class _LocalSqlGenerator {
     if (!_isSafeIdentifierPath(table)) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'I could not identify a safe table name. Try: "select all from table customers".',
+        message:
+            'I could not identify a safe table name. Try: "select all from table customers".',
       );
     }
 
     final safeTable = table!;
-    final qualifiedTable = _qualifiedTable(provider, safeTable, context.fallbackSchema);
+    final qualifiedTable =
+        _qualifiedTable(provider, safeTable, context.fallbackSchema);
     final command = _detectCommand(normalized);
 
     switch (command) {
@@ -3277,7 +3528,8 @@ class _LocalSqlGenerator {
     final where = _extractWhere(normalized);
     final orderBy = _extractOrderBy(normalized, provider, context);
     final limit = _extractLimit(normalized);
-    final selectList = count ? 'COUNT(*)' : (columns.isEmpty ? '*' : columns.join(', '));
+    final selectList =
+        count ? 'COUNT(*)' : (columns.isEmpty ? '*' : columns.join(', '));
     final buffer = StringBuffer();
 
     if (provider == DatabaseProvider.sqlServer && limit != null) {
@@ -3293,7 +3545,8 @@ class _LocalSqlGenerator {
     }
 
     if (orderBy != null) {
-      buffer.writeln('ORDER BY ${orderBy.column} ${orderBy.descending ? 'DESC' : 'ASC'}');
+      buffer.writeln(
+          'ORDER BY ${orderBy.column} ${orderBy.descending ? 'DESC' : 'ASC'}');
     }
 
     if (provider == DatabaseProvider.postgresql && limit != null) {
@@ -3310,17 +3563,23 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateInsert(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
+  static _LocalSqlBuildResult _generateInsert(
+      String normalized,
+      DatabaseProvider provider,
+      String qualifiedTable,
+      _LocalSqlContext context) {
     final values = _extractAssignments(normalized, provider, context);
     if (values.isEmpty) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'I need column values for INSERT. Try: "insert into table customers name John and age 30".',
+        message:
+            'I need column values for INSERT. Try: "insert into table customers name John and age 30".',
       );
     }
 
     final columns = values.keys.join(', ');
-    final sqlValues = values.values.map((value) => _sqlLiteral(value, provider)).join(', ');
+    final sqlValues =
+        values.values.map((value) => _sqlLiteral(value, provider)).join(', ');
 
     return _LocalSqlBuildResult(
       sql: 'INSERT INTO $qualifiedTable ($columns)\nVALUES ($sqlValues);',
@@ -3328,12 +3587,17 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateUpdate(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
+  static _LocalSqlBuildResult _generateUpdate(
+      String normalized,
+      DatabaseProvider provider,
+      String qualifiedTable,
+      _LocalSqlContext context) {
     final values = _extractAssignments(normalized, provider, context);
     if (values.isEmpty) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'I need values to update. Try: "update table customers set name John where id equals 1".',
+        message:
+            'I need values to update. Try: "update table customers set name John where id equals 1".',
       );
     }
 
@@ -3341,7 +3605,8 @@ class _LocalSqlGenerator {
     if (where == null && !_hasAny(normalized, const ['all', 'every'])) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'UPDATE needs a WHERE condition, or say "update all" if you really want every row.',
+        message:
+            'UPDATE needs a WHERE condition, or say "update all" if you really want every row.',
       );
     }
 
@@ -3364,12 +3629,17 @@ class _LocalSqlGenerator {
     );
   }
 
-  static _LocalSqlBuildResult _generateDelete(String normalized, DatabaseProvider provider, String qualifiedTable, _LocalSqlContext context) {
+  static _LocalSqlBuildResult _generateDelete(
+      String normalized,
+      DatabaseProvider provider,
+      String qualifiedTable,
+      _LocalSqlContext context) {
     final where = _extractWhere(normalized);
     if (where == null && !_hasAny(normalized, const ['all', 'every'])) {
       return const _LocalSqlBuildResult(
         sql: null,
-        message: 'DELETE needs a WHERE condition, or say "delete all" if you really want every row.',
+        message:
+            'DELETE needs a WHERE condition, or say "delete all" if you really want every row.',
       );
     }
 
@@ -3387,8 +3657,10 @@ class _LocalSqlGenerator {
   }
 
   static String _detectCommand(String value) {
-    if (_hasAny(value, const ['insert', 'add', 'create row', 'new row'])) return 'insert';
-    if (_hasAny(value, const ['update', 'change', 'modify', 'set'])) return 'update';
+    if (_hasAny(value, const ['insert', 'add', 'create row', 'new row']))
+      return 'insert';
+    if (_hasAny(value, const ['update', 'change', 'modify', 'set']))
+      return 'update';
     if (_hasAny(value, const ['delete', 'remove'])) return 'delete';
     return 'select';
   }
@@ -3438,11 +3710,14 @@ class _LocalSqlGenerator {
   }
 
   static int _countHits(String value, List<String> words) {
-    return words.where((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value)).length;
+    return words
+        .where((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value))
+        .length;
   }
 
   static bool _hasAny(String value, List<String> words) {
-    return words.any((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value));
+    return words
+        .any((word) => RegExp('\\b${RegExp.escape(word)}\\b').hasMatch(value));
   }
 
   static String? _extractTable(String value) {
@@ -3457,7 +3732,8 @@ class _LocalSqlGenerator {
     for (final pattern in patterns) {
       final match = pattern.firstMatch(value);
       final table = match?.group(1);
-      if (_isSafeIdentifierPath(table) && !_reservedTableWords.contains(table)) {
+      if (_isSafeIdentifierPath(table) &&
+          !_reservedTableWords.contains(table)) {
         return table;
       }
     }
@@ -3465,14 +3741,17 @@ class _LocalSqlGenerator {
     return null;
   }
 
-  static List<String> _extractColumns(String value, String table, DatabaseProvider provider, _LocalSqlContext context) {
+  static List<String> _extractColumns(String value, String table,
+      DatabaseProvider provider, _LocalSqlContext context) {
     if (_hasAny(value, const ['all', 'records', 'rows'])) {
       return const [];
     }
 
     final matches = [
-      RegExp(r'\b(?:fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:from|where|order|limit)\b|$)').firstMatch(value),
-      RegExp(r'\b(?:select|show|get)\s+(.+?)\s+(?:from|of|in)\b').firstMatch(value),
+      RegExp(r'\b(?:fields|columns)\s+([a-zA-Z0-9_,\s]+?)(?:\s+(?:from|where|order|limit)\b|$)')
+          .firstMatch(value),
+      RegExp(r'\b(?:select|show|get)\s+(.+?)\s+(?:from|of|in)\b')
+          .firstMatch(value),
     ];
 
     String? raw;
@@ -3484,7 +3763,8 @@ class _LocalSqlGenerator {
       }
     }
     if (raw == null) return const [];
-    if (_hasAny(raw, const ['all', 'table', 'records', 'rows'])) return const [];
+    if (_hasAny(raw, const ['all', 'table', 'records', 'rows']))
+      return const [];
 
     final columns = raw
         .split(RegExp(r'\s*,\s*|\s+and\s+'))
@@ -3498,7 +3778,8 @@ class _LocalSqlGenerator {
     return columns;
   }
 
-  static Map<String, String> _extractAssignments(String value, DatabaseProvider provider, _LocalSqlContext context) {
+  static Map<String, String> _extractAssignments(
+      String value, DatabaseProvider provider, _LocalSqlContext context) {
     var segment = '';
     final patterns = [
       RegExp(r'\bset\s+(.+?)(?:\s+where\b|$)'),
@@ -3516,13 +3797,16 @@ class _LocalSqlGenerator {
     }
 
     if (segment.isEmpty) {
-      final tableMatch = RegExp(r'\b(?:into|table|update)\s+(?:table\s+)?[a-zA-Z_][a-zA-Z0-9_.$]*\s+(.+?)(?:\s+where\b|$)').firstMatch(value);
+      final tableMatch = RegExp(
+              r'\b(?:into|table|update)\s+(?:table\s+)?[a-zA-Z_][a-zA-Z0-9_.$]*\s+(.+?)(?:\s+where\b|$)')
+          .firstMatch(value);
       segment = tableMatch?.group(1)?.trim() ?? '';
     }
 
     if (segment.isEmpty) return const {};
 
-    final contextAssignments = _extractContextAssignments(segment, provider, context);
+    final contextAssignments =
+        _extractContextAssignments(segment, provider, context);
     if (contextAssignments.isNotEmpty) return contextAssignments;
 
     final result = <String, String>{};
@@ -3539,10 +3823,16 @@ class _LocalSqlGenerator {
       final column = match?.group(1)?.trim();
       var rawValue = match?.group(2)?.trim();
       final resolvedColumn = context.resolveColumn(column) ?? column;
-      if (!_isSafeIdentifier(resolvedColumn) || rawValue == null || rawValue.isEmpty) continue;
+      if (!_isSafeIdentifier(resolvedColumn) ||
+          rawValue == null ||
+          rawValue.isEmpty) continue;
 
-      rawValue = rawValue.replaceAll(RegExp(r'^(to|as|equals|equal(?:\s+to)?|is|where)\s+'), '').trim();
-      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
+      rawValue = rawValue
+          .replaceAll(
+              RegExp(r'^(to|as|equals|equal(?:\s+to)?|is|where)\s+'), '')
+          .trim();
+      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue))
+        continue;
 
       result[context.formatColumn(provider, resolvedColumn!)] = rawValue;
     }
@@ -3550,7 +3840,8 @@ class _LocalSqlGenerator {
     return result;
   }
 
-  static Map<String, String> _extractContextAssignments(String segment, DatabaseProvider provider, _LocalSqlContext context) {
+  static Map<String, String> _extractContextAssignments(
+      String segment, DatabaseProvider provider, _LocalSqlContext context) {
     if (context.columnNames.isEmpty) return const {};
 
     final matches = <({int start, int end, String column})>[];
@@ -3562,7 +3853,8 @@ class _LocalSqlGenerator {
           .toList();
       if (columnWords.isEmpty) continue;
 
-      final pattern = RegExp('\\b${columnWords.map(RegExp.escape).join(r'[_\s]*')}\\b');
+      final pattern =
+          RegExp('\\b${columnWords.map(RegExp.escape).join(r'[_\s]*')}\\b');
       for (final match in pattern.allMatches(segment)) {
         matches.add((start: match.start, end: match.end, column: column));
       }
@@ -3574,14 +3866,16 @@ class _LocalSqlGenerator {
     final result = <String, String>{};
     for (var i = 0; i < matches.length; i++) {
       final current = matches[i];
-      final nextStart = i + 1 < matches.length ? matches[i + 1].start : segment.length;
+      final nextStart =
+          i + 1 < matches.length ? matches[i + 1].start : segment.length;
       var rawValue = segment.substring(current.end, nextStart).trim();
       rawValue = rawValue
           .replaceAll(RegExp(r'^(=|:|to|as|equals|equal(?:\s+to)?|is)\s*'), '')
           .replaceAll(RegExp(r'\s+(and|with)$'), '')
           .trim();
 
-      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue)) continue;
+      if (rawValue.isEmpty || _reservedAssignmentWords.contains(rawValue))
+        continue;
       result[context.formatColumn(provider, current.column)] = rawValue;
     }
 
@@ -3592,8 +3886,10 @@ class _LocalSqlGenerator {
     final whereMatches = RegExp(r'\bwhere\b').allMatches(value).toList();
     if (whereMatches.isEmpty) return null;
     final whereIndex = whereMatches.last.start;
-    final afterWhere = value.substring(whereIndex).replaceFirst(RegExp(r'^where\s+'), '');
-    final segment = afterWhere.split(RegExp(r'\s+(?:order|limit)\b')).first.trim();
+    final afterWhere =
+        value.substring(whereIndex).replaceFirst(RegExp(r'^where\s+'), '');
+    final segment =
+        afterWhere.split(RegExp(r'\s+(?:order|limit)\b')).first.trim();
     if (segment.isEmpty) return null;
     final normalizedSegment = segment
         .replaceAll(RegExp(r'\bi\s+d\b'), 'id')
@@ -3601,11 +3897,29 @@ class _LocalSqlGenerator {
         .trim();
 
     final conditionPatterns = <({RegExp regex, String comparison})>[
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:greater\s+than|more\s+than)\s+(.+)$'), comparison: '>'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+less\s+than\s+(.+)$'), comparison: '<'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:like|contains|containing)\s+(.+)$'), comparison: 'LIKE'),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal(?:\s+to)?|is)\s+(.+)$'), comparison: '='),
-      (regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'), comparison: ''),
+      (
+        regex: RegExp(
+            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:greater\s+than|more\s+than)\s+(.+)$'),
+        comparison: '>'
+      ),
+      (
+        regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+less\s+than\s+(.+)$'),
+        comparison: '<'
+      ),
+      (
+        regex: RegExp(
+            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:like|contains|containing)\s+(.+)$'),
+        comparison: 'LIKE'
+      ),
+      (
+        regex: RegExp(
+            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:equals|equal(?:\s+to)?|is)\s+(.+)$'),
+        comparison: '='
+      ),
+      (
+        regex: RegExp(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(>=|<=|=|>|<)\s*(.+)$'),
+        comparison: ''
+      ),
     ];
 
     for (final item in conditionPatterns) {
@@ -3613,14 +3927,20 @@ class _LocalSqlGenerator {
       if (match == null) continue;
 
       final column = match.group(1)?.trim();
-      final comparison = item.comparison.isEmpty ? match.group(2)?.trim() : item.comparison;
-      final conditionValue = match.group(item.comparison.isEmpty ? 3 : 2)?.trim();
+      final comparison =
+          item.comparison.isEmpty ? match.group(2)?.trim() : item.comparison;
+      final conditionValue =
+          match.group(item.comparison.isEmpty ? 3 : 2)?.trim();
 
-      if (!_isSafeIdentifier(column) || comparison == null || conditionValue == null || conditionValue.isEmpty) {
+      if (!_isSafeIdentifier(column) ||
+          comparison == null ||
+          conditionValue == null ||
+          conditionValue.isEmpty) {
         continue;
       }
 
-      return _LocalSqlCondition(column: column!, comparison: comparison, value: conditionValue);
+      return _LocalSqlCondition(
+          column: column!, comparison: comparison, value: conditionValue);
     }
 
     final spokenMatch = RegExp(
@@ -3628,15 +3948,21 @@ class _LocalSqlGenerator {
     ).firstMatch(normalizedSegment);
     final spokenColumn = spokenMatch?.group(1)?.trim();
     final spokenValue = spokenMatch?.group(2)?.trim();
-    if (_isSafeIdentifier(spokenColumn) && spokenValue != null && spokenValue.isNotEmpty) {
-      return _LocalSqlCondition(column: spokenColumn!, comparison: '=', value: spokenValue);
+    if (_isSafeIdentifier(spokenColumn) &&
+        spokenValue != null &&
+        spokenValue.isNotEmpty) {
+      return _LocalSqlCondition(
+          column: spokenColumn!, comparison: '=', value: spokenValue);
     }
 
     return null;
   }
 
-  static _LocalSqlOrder? _extractOrderBy(String value, DatabaseProvider provider, _LocalSqlContext context) {
-    final match = RegExp(r'\border\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascending|descending))?').firstMatch(value);
+  static _LocalSqlOrder? _extractOrderBy(
+      String value, DatabaseProvider provider, _LocalSqlContext context) {
+    final match = RegExp(
+            r'\border\s+by\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc|ascending|descending))?')
+        .firstMatch(value);
     final column = context.resolveColumn(match?.group(1)) ?? match?.group(1);
     if (!_isSafeIdentifier(column)) return null;
 
@@ -3648,7 +3974,8 @@ class _LocalSqlGenerator {
   }
 
   static int? _extractLimit(String value) {
-    final match = RegExp(r'\b(?:limit|top|first)\s+(\d{1,4})\b').firstMatch(value);
+    final match =
+        RegExp(r'\b(?:limit|top|first)\s+(\d{1,4})\b').firstMatch(value);
     final parsed = int.tryParse(match?.group(1) ?? '');
     if (parsed == null) return null;
     return parsed.clamp(1, 5000).toInt();
@@ -3673,7 +4000,8 @@ class _LocalSqlGenerator {
     return "'$escaped'";
   }
 
-  static String _qualifiedTable(DatabaseProvider provider, String table, String? schema) {
+  static String _qualifiedTable(
+      DatabaseProvider provider, String table, String? schema) {
     final parts = table.split('.');
     final effectiveSchema = parts.length > 1 ? parts.first : schema;
     final name = parts.length > 1 ? parts.last : table;
@@ -3688,9 +4016,12 @@ class _LocalSqlGenerator {
         final cleanName = _cleanQuotedIdentifier(name);
         return '"$cleanSchema"."$cleanName"';
       case DatabaseProvider.oracle:
-        final cleanSchema = _cleanQuotedIdentifier(effectiveSchema ?? '').toUpperCase();
+        final cleanSchema =
+            _cleanQuotedIdentifier(effectiveSchema ?? '').toUpperCase();
         final cleanName = _cleanQuotedIdentifier(name).toUpperCase();
-        return cleanSchema.isEmpty ? '"$cleanName"' : '"$cleanSchema"."$cleanName"';
+        return cleanSchema.isEmpty
+            ? '"$cleanName"'
+            : '"$cleanSchema"."$cleanName"';
     }
   }
 
@@ -3699,7 +4030,9 @@ class _LocalSqlGenerator {
   }
 
   static bool _isSafeIdentifierPath(String? value) {
-    return value != null && RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?$').hasMatch(value);
+    return value != null &&
+        RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?$')
+            .hasMatch(value);
   }
 
   static String _cleanSqlServerIdentifier(String value) {
@@ -3799,13 +4132,16 @@ class _LocalSqlCondition {
     final formattedColumn = context.formatColumn(provider, column);
     final cleanValue = value.trim();
     if (comparison == 'LIKE') {
-      final normalized = cleanValue.replaceAll(RegExp(r'^(like|contains|containing)\s+'), '').trim();
+      final normalized = cleanValue
+          .replaceAll(RegExp(r'^(like|contains|containing)\s+'), '')
+          .trim();
       final escaped = normalized.replaceAll("'", "''");
       return "$formattedColumn LIKE '%$escaped%'";
     }
 
     final numeric = num.tryParse(cleanValue.replaceAll(',', '.'));
-    if (numeric != null) return '$formattedColumn $comparison ${numeric.toString()}';
+    if (numeric != null)
+      return '$formattedColumn $comparison ${numeric.toString()}';
     final wordNumber = _LocalSqlGenerator._englishNumberWords[cleanValue];
     if (wordNumber != null) return '$formattedColumn $comparison $wordNumber';
 

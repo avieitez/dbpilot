@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'plan_access_service.dart';
+
 class QueryHistoryItem {
   QueryHistoryItem({
     required this.id,
@@ -60,8 +62,11 @@ class QueryHistoryStorageService {
 
     items.insert(0, jsonEncode(historyItem.toMap()));
 
-    if (items.length > 200) {
-      items.removeRange(200, items.length);
+    final historyLimit = PlanAccessService.instance.isPro
+        ? 200
+        : PlanAccessService.freeHistoryLimit;
+    if (items.length > historyLimit) {
+      items.removeRange(historyLimit, items.length);
     }
 
     await prefs.setStringList(_storageKey, items);
@@ -80,13 +85,17 @@ class QueryHistoryStorageService {
       );
     }).toList();
 
-    if (provider == null || provider.trim().isEmpty) {
-      return result;
-    }
+    final filtered = provider == null || provider.trim().isEmpty
+        ? result
+        : result
+            .where((x) => x.provider.toLowerCase() == provider.toLowerCase())
+            .toList();
 
-    return result
-        .where((x) => x.provider.toLowerCase() == provider.toLowerCase())
-        .toList();
+    if (PlanAccessService.instance.isPro ||
+        filtered.length <= PlanAccessService.freeHistoryLimit) {
+      return filtered;
+    }
+    return filtered.take(PlanAccessService.freeHistoryLimit).toList();
   }
 
   Future<void> deleteQuery(String id) async {
@@ -117,8 +126,10 @@ class QueryHistoryStorageService {
     final filtered = items.where((item) {
       try {
         final map = jsonDecode(item) as Map<String, dynamic>;
-        final itemProvider = map['provider']?.toString().trim().toLowerCase() ?? '';
-        final itemConnectionName = map['connectionName']?.toString().trim().toLowerCase() ?? '';
+        final itemProvider =
+            map['provider']?.toString().trim().toLowerCase() ?? '';
+        final itemConnectionName =
+            map['connectionName']?.toString().trim().toLowerCase() ?? '';
         return itemProvider != normalizedProvider ||
             itemConnectionName != normalizedConnectionName;
       } catch (_) {
@@ -128,7 +139,7 @@ class QueryHistoryStorageService {
 
     await prefs.setStringList(_storageKey, filtered);
   }
-  
+
   Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_storageKey);

@@ -15,6 +15,7 @@ import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/connection_api_service.dart';
+import '../../services/plan_access_service.dart';
 import '../../services/query_history_storage_service.dart';
 import '../../services/saved_connection_storage_service.dart';
 import '../../services/subscription_service.dart';
@@ -25,7 +26,16 @@ import 'query_editor/query_editor_screen.dart';
 import 'sqlserver_main.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    required this.initialSession,
+    required this.showInitialPaywall,
+    required this.onSignedOut,
+  });
+
+  final AppUserSession initialSession;
+  final bool showInitialPaywall;
+  final VoidCallback onSignedOut;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -36,6 +46,14 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _appVersion = '0.1.0';
   static const String _appBuildNumber = '1';
   static const String _supportEmail = 'support@dbpilot.app';
+  static const List<IconData> _avatarIcons = [
+    Icons.person_rounded,
+    Icons.terminal_rounded,
+    Icons.storage_rounded,
+    Icons.code_rounded,
+    Icons.bolt_rounded,
+    Icons.shield_rounded,
+  ];
   static const List<String> _settingsBackupKeys = [
     'settings.defaultSafeMode',
     'settings.confirmDangerousQueries',
@@ -58,7 +76,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = true;
   bool _connecting = false;
   bool _authLoading = false;
+  bool _initialPaywallHandled = false;
   int _selectedIndex = 0;
+  int _avatarIndex = 0;
   DatabaseProvider? _expandedConnectionProvider;
   DatabaseProvider? _expandedQueryProvider;
   String? _expandedQueryConnectionKey;
@@ -91,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final connections = await _storageService.getSavedConnections();
     final queries = await _queryHistoryService.getQueries();
     final activeId = await _storageService.getActiveConnectionId();
-    final authSession = await _authService.currentSession();
+    final authSession =
+        await _authService.currentSession() ?? widget.initialSession;
     final prefs = await SharedPreferences.getInstance();
 
     Map<String, dynamic>? active;
@@ -110,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _activeConnectionId = activeId;
       _activeConnection = active;
       _authSession = authSession;
+      _avatarIndex = prefs.getInt('settings.avatar.${authSession.uid}') ?? 0;
       _defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
       _confirmDangerousQueries =
           prefs.getBool('settings.confirmDangerousQueries') ?? true;
@@ -125,6 +147,16 @@ class _HomeScreenState extends State<HomeScreen> {
       _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _loading = false;
     });
+
+    PlanAccessService.instance.updateSession(authSession);
+    if (widget.showInitialPaywall && !_initialPaywallHandled) {
+      _initialPaywallHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await _openPaywall();
+        await prefs.setBool('onboarding.paywallShown.${authSession.uid}', true);
+      });
+    }
   }
 
   String _providerLabel(String value) {
@@ -169,11 +201,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _providerMain(ConnectionRequest request) {
     switch (request.provider) {
       case DatabaseProvider.sqlServer:
-        return SqlServerMain(connection: request);
+        return SqlServerMain(
+          connection: request,
+          onUpgradeRequested: _openPaywall,
+        );
       case DatabaseProvider.postgresql:
-        return PostgreSqlMain(connection: request);
+        return PostgreSqlMain(
+          connection: request,
+          onUpgradeRequested: _openPaywall,
+        );
       case DatabaseProvider.oracle:
-        return OracleMain(connection: request);
+        return OracleMain(
+          connection: request,
+          onUpgradeRequested: _openPaywall,
+        );
     }
   }
 
@@ -218,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => ConnectionScreen(
           initialData: initialData,
           duplicate: duplicate,
+          onUpgradeRequested: _openPaywall,
         ),
       ),
     );
@@ -299,6 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
             providerLabel: request.provider.label.toUpperCase(),
             connectionSummary:
                 '${request.name}\n${request.host} / ${_connectionTarget(request)}',
+            onUpgradeRequested: _openPaywall,
           ),
         ),
       );
@@ -357,6 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
             connectionSummary:
                 '${request.name}\n${request.host} / ${_connectionTarget(request)}',
             initialSql: query.sql,
+            onUpgradeRequested: _openPaywall,
           ),
         ),
       );
@@ -1490,6 +1534,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
 
       setState(() => _authSession = session);
+      PlanAccessService.instance.updateSession(session);
       if (session == null) {
         _showInfo('Google sign-in was cancelled.');
         return;
@@ -1513,7 +1558,8 @@ class _HomeScreenState extends State<HomeScreen> {
       await _authService.signOut();
       if (!mounted) return;
       setState(() => _authSession = null);
-      _showInfo('Signed out.');
+      PlanAccessService.instance.updateSession(null);
+      widget.onSignedOut();
     } catch (error) {
       if (!mounted) return;
       _showInfo(
@@ -1531,6 +1577,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final session = await _authService.currentSession();
       if (!mounted) return;
       setState(() => _authSession = session);
+      PlanAccessService.instance.updateSession(session);
       _showInfo(session == null
           ? 'Sign in to check your plan.'
           : 'Plan checked: ${session.plan.label}.');
@@ -1612,27 +1659,43 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            session.displayName?.trim().isNotEmpty == true
-                ? session.displayName!
-                : session.email ?? 'Google account',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
-          if (session.email != null && session.email!.trim().isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              session.email!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70),
-            ),
-          ],
-          const SizedBox(height: 8),
-          SelectableText(
-            'UID: ${session.uid}',
-            style: const TextStyle(color: Colors.white60, fontSize: 12),
+          Row(
+            children: [
+              InkWell(
+                onTap: _showAvatarPicker,
+                borderRadius: BorderRadius.circular(8),
+                child: _accountAvatar(size: 46),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      session.displayName?.trim().isNotEmpty == true
+                          ? session.displayName!
+                          : 'Google account',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    if (session.email != null &&
+                        session.email!.trim().isNotEmpty)
+                      Text(
+                        session.email!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _showAvatarPicker,
+                tooltip: 'Choose avatar',
+                icon: const Icon(Icons.edit_rounded, size: 18),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
@@ -1659,6 +1722,134 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _accountAvatar({double size = 38}) {
+    final index = _avatarIndex.clamp(0, _avatarIcons.length - 1);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFF123B63),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2D8CFF)),
+      ),
+      child: Icon(
+        _avatarIcons[index],
+        size: size * 0.55,
+        color: const Color(0xFF9EC5FF),
+      ),
+    );
+  }
+
+  Future<void> _showAvatarPicker() async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Choose your avatar',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 16),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                ),
+                itemCount: _avatarIcons.length,
+                itemBuilder: (context, index) => InkWell(
+                  onTap: () => Navigator.of(context).pop(index),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: index == _avatarIndex
+                          ? const Color(0xFF123B63)
+                          : const Color(0xFF171C24),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: index == _avatarIndex
+                            ? const Color(0xFF2D8CFF)
+                            : Colors.white12,
+                      ),
+                    ),
+                    child: Icon(
+                      _avatarIcons[index],
+                      size: 34,
+                      color: index == _avatarIndex
+                          ? const Color(0xFF9EC5FF)
+                          : Colors.white70,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    final session = _authSession;
+    if (session == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('settings.avatar.${session.uid}', selected);
+    if (mounted) setState(() => _avatarIndex = selected);
+  }
+
+  Widget _accountHeader() {
+    final session = _authSession!;
+    return Material(
+      color: const Color(0xFF101318),
+      child: InkWell(
+        onTap: () => setState(() => _selectedIndex = 2),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              _accountAvatar(),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  session.email ?? session.displayName ?? 'Google account',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: session.plan == SubscriptionPlan.pro
+                      ? const Color(0xFF173D32)
+                      : const Color(0xFF252B35),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  session.plan.label,
+                  style: TextStyle(
+                    color: session.plan == SubscriptionPlan.pro
+                        ? const Color(0xFF61D9A7)
+                        : Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openPaywall() async {
     final session = _authSession;
 
@@ -1681,6 +1872,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final session = await _authService.signInWithGoogle();
       if (!mounted || session == null) return null;
       setState(() => _authSession = session);
+      PlanAccessService.instance.updateSession(session);
       return session.uid;
     } catch (error) {
       if (mounted) {
@@ -2272,6 +2464,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (!_loading && _authSession != null) _accountHeader(),
             Expanded(
               child: Stack(
                 children: [

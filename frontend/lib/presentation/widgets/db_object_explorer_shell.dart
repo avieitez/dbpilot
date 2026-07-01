@@ -46,10 +46,9 @@ class DbExplorerObject {
   final bool parametersLoaded;
   final bool isDemo;
 
-  String get qualifiedName =>
-      schemaName == null || schemaName!.trim().isEmpty
-          ? name
-          : '${schemaName!}.$name';
+  String get qualifiedName => schemaName == null || schemaName!.trim().isEmpty
+      ? name
+      : '${schemaName!}.$name';
 
   String get effectiveQuery => previewQuery ?? defaultQuery ?? '';
 
@@ -81,7 +80,6 @@ class DbExplorerObject {
     );
   }
 }
-
 
 class DbColumnInfo {
   const DbColumnInfo({
@@ -115,6 +113,7 @@ class DbObjectExplorerShell extends StatefulWidget {
     required this.providerLabel,
     required this.connectionSummary,
     required this.connection,
+    required this.onUpgradeRequested,
     this.initialCategories = const [],
     this.loadFromBackend = true,
   });
@@ -122,6 +121,7 @@ class DbObjectExplorerShell extends StatefulWidget {
   final String providerLabel;
   final String connectionSummary;
   final ConnectionRequest connection;
+  final Future<void> Function() onUpgradeRequested;
   final List<DbCategoryGroup> initialCategories;
   final bool loadFromBackend;
 
@@ -144,7 +144,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   List<DbExplorerObject> get _activeItems {
     if (_activeCategory == null) return [];
-    final group = _categories.where((g) => g.category == _activeCategory).firstOrNull;
+    final group =
+        _categories.where((g) => g.category == _activeCategory).firstOrNull;
     final items = group?.items ?? [];
     final term = _searchController.text.trim().toLowerCase();
     if (term.isEmpty) return items;
@@ -210,7 +211,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   void _setCategories(List<DbCategoryGroup> value) {
     final firstCategory = value.isNotEmpty ? value.first.category : null;
-    final firstItems = value.isNotEmpty ? value.first.items : <DbExplorerObject>[];
+    final firstItems =
+        value.isNotEmpty ? value.first.items : <DbExplorerObject>[];
     setState(() {
       _categories = value;
       _activeCategory = firstCategory;
@@ -287,52 +289,68 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       case DbObjectCategory.packages:
         return Icons.inventory_2_rounded;
       case DbObjectCategory.sequences:
-        return Icons.format_list_numbered_rounded;        
+        return Icons.format_list_numbered_rounded;
     }
   }
 
   String _defaultQuery(DbExplorerObject object) {
-    final objectType = (object.objectType ?? _objectTypeFromCategory(object.category))
-        .toLowerCase()
-        .replaceAll(' ', '_');
+    final objectType =
+        (object.objectType ?? _objectTypeFromCategory(object.category))
+            .toLowerCase()
+            .replaceAll(' ', '_');
     final schema = object.schemaName?.trim();
     final provider = widget.connection.provider;
 
     switch (provider) {
       case DatabaseProvider.sqlServer:
         final qualified = _sqlServerQualifiedName(object.name, schema);
-        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'EXEC $qualified;';
+        if (objectType == 'procedure' || objectType == 'stored_procedure')
+          return 'EXEC $qualified;';
         if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
-        if (objectType == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (objectType == 'trigger')
+          return '-- Trigger $qualified. Open definition to inspect trigger source.';
         return 'SELECT *\nFROM $qualified;';
       case DatabaseProvider.postgresql:
-        final qualified = _quotedQualifiedName(object.name, schema ?? 'public', '"');
-        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'CALL $qualified();';
+        final qualified =
+            _quotedQualifiedName(object.name, schema ?? 'public', '"');
+        if (objectType == 'procedure' || objectType == 'stored_procedure')
+          return 'CALL $qualified();';
         if (objectType == 'function') return 'SELECT *\nFROM $qualified();';
-        if (objectType == 'extension') return '-- Extension ${object.name}. No preview query available.';
+        if (objectType == 'extension')
+          return '-- Extension ${object.name}. No preview query available.';
         return 'SELECT *\nFROM $qualified;';
       case DatabaseProvider.oracle:
         final qualified = _oracleQualifiedName(object.name, schema);
-        if (objectType == 'procedure' || objectType == 'stored_procedure') return 'BEGIN\n  $qualified;\nEND;';
-        if (objectType == 'function') return 'SELECT $qualified() AS VALUE\nFROM dual;';
-        if (objectType == 'package') return '-- Package $qualified. Open definition to inspect package source.';
-        if (objectType == 'trigger') return '-- Trigger $qualified. Open definition to inspect trigger source.';
-        if (objectType == 'sequence') return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
+        if (objectType == 'procedure' || objectType == 'stored_procedure')
+          return 'BEGIN\n  $qualified;\nEND;';
+        if (objectType == 'function')
+          return 'SELECT $qualified() AS VALUE\nFROM dual;';
+        if (objectType == 'package')
+          return '-- Package $qualified. Open definition to inspect package source.';
+        if (objectType == 'trigger')
+          return '-- Trigger $qualified. Open definition to inspect trigger source.';
+        if (objectType == 'sequence')
+          return 'SELECT $qualified.NEXTVAL AS NEXT_VALUE\nFROM dual;';
         return 'SELECT *\nFROM $qualified;';
     }
   }
 
   String _sqlServerQualifiedName(String objectName, String? schemaName) {
-    String clean(String value) => value.replaceAll('[', '').replaceAll(']', '').trim();
-    final schema = clean((schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
+    String clean(String value) =>
+        value.replaceAll('[', '').replaceAll(']', '').trim();
+    final schema = clean(
+        (schemaName == null || schemaName.trim().isEmpty) ? 'dbo' : schemaName);
     return '[${clean(schema)}].[${clean(objectName)}]';
   }
 
-  String _quotedQualifiedName(String objectName, String schemaName, String quote) {
+  String _quotedQualifiedName(
+      String objectName, String schemaName, String quote) {
     String clean(String value) => value.replaceAll(quote, quote + quote).trim();
     final schema = clean(schemaName);
     final name = clean(objectName);
-    return schema.isEmpty ? '$quote$name$quote' : '$quote$schema$quote.$quote$name$quote';
+    return schema.isEmpty
+        ? '$quote$name$quote'
+        : '$quote$schema$quote.$quote$name$quote';
   }
 
   String _oracleQualifiedName(String objectName, String? schemaName) {
@@ -398,7 +416,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
         category: group.category,
         label: group.label,
         items: group.items
-            .map((item) => item.name == updated.name && item.schemaName == updated.schemaName ? updated : item)
+            .map((item) => item.name == updated.name &&
+                    item.schemaName == updated.schemaName
+                ? updated
+                : item)
             .toList(),
       );
     }).toList();
@@ -438,7 +459,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     }
   }
 
-
   int _columnCountForObject(DbExplorerObject item) {
     if (item.columns.isNotEmpty) return item.columns.length;
 
@@ -475,11 +495,10 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     return parts.isEmpty ? item.subtitle : parts.join(' · ');
   }
 
-
-
   String _objectKey(DbExplorerObject item) {
     final schema = item.schemaName?.trim() ?? '';
-    final type = item.objectType?.trim() ?? _objectTypeFromCategory(item.category);
+    final type =
+        item.objectType?.trim() ?? _objectTypeFromCategory(item.category);
     return '$type|$schema|${item.name}';
   }
 
@@ -503,7 +522,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       _visibleStructureKeys.add(key);
     });
   }
-
 
   Future<void> _showPreview(DbExplorerObject object) async {
     if (!widget.loadFromBackend) {
@@ -583,7 +601,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
 
   void _showInfoSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _openQueryEditor(DbExplorerObject object) {
@@ -595,14 +614,15 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
           connectionSummary: widget.connectionSummary,
           initialSql: _defaultQuery(object),
           objectName: object.name,
-          objectType: object.objectType ?? _objectTypeFromCategory(object.category),
+          objectType:
+              object.objectType ?? _objectTypeFromCategory(object.category),
           schemaName: object.schemaName,
           objectColumns: object.columns.map((column) => column.name).toList(),
+          onUpgradeRequested: widget.onUpgradeRequested,
         ),
       ),
     );
   }
-
 
   @override
   void dispose() {
@@ -617,7 +637,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final activeItems = _activeItems;
-    final selected = activeItems.any((item) => item.name == _selectedObject?.name)
+    final selected = activeItems
+            .any((item) => item.name == _selectedObject?.name)
         ? activeItems.firstWhere((item) => item.name == _selectedObject?.name)
         : (activeItems.isNotEmpty ? activeItems.first : _selectedObject);
 
@@ -645,11 +666,13 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                           children: [
                             SizedBox(
                               width: 320,
-                              child: _buildSidebar(theme, colors, panelColor, activeItems, selected),
+                              child: _buildSidebar(theme, colors, panelColor,
+                                  activeItems, selected),
                             ),
                             const VerticalDivider(width: 1),
                             Expanded(
-                              child: _buildDetail(theme, colors, panelColor, selected),
+                              child: _buildDetail(
+                                  theme, colors, panelColor, selected),
                             ),
                           ],
                         );
@@ -661,12 +684,14 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
                           _buildTabs(theme, colors),
                           Expanded(
                             child: ListView(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 16),
                               children: [
                                 ...activeItems.map(
                                   (item) => Padding(
                                     padding: const EdgeInsets.only(bottom: 14),
-                                    child: _buildMobileCard(theme, colors, panelColor, item),
+                                    child: _buildMobileCard(
+                                        theme, colors, panelColor, item),
                                   ),
                                 ),
                               ],
@@ -755,7 +780,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
             selected: selected,
             onSelected: (_) => setState(() {
               _activeCategory = group.category;
-              _selectedObject = group.items.isNotEmpty ? group.items.first : null;
+              _selectedObject =
+                  group.items.isNotEmpty ? group.items.first : null;
               if (_selectedObject != null) {
                 _loadStructure(_selectedObject!);
               }
@@ -961,7 +987,9 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
               theme,
               colors,
               panelColor,
-              item.name == _selectedObject?.name ? (_selectedObject ?? item) : item,
+              item.name == _selectedObject?.name
+                  ? (_selectedObject ?? item)
+                  : item,
             ),
           ],
         ],
@@ -1062,7 +1090,6 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
     );
   }
 
-
   String _formatColumnType(String value) {
     final clean = value.trim();
     if (clean.isEmpty) return '';
@@ -1078,12 +1105,17 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
   }
 
   bool _supportsParameters(DbExplorerObject item) {
-    final type = (item.objectType ?? _objectTypeFromCategory(item.category)).toLowerCase();
-    return type == 'procedure' || type == 'stored_procedure' || type == 'function';
+    final type = (item.objectType ?? _objectTypeFromCategory(item.category))
+        .toLowerCase();
+    return type == 'procedure' ||
+        type == 'stored_procedure' ||
+        type == 'function';
   }
 
   Future<void> _loadParameters(DbExplorerObject object) async {
-    if (!widget.loadFromBackend || !_supportsParameters(object) || object.parametersLoaded) {
+    if (!widget.loadFromBackend ||
+        !_supportsParameters(object) ||
+        object.parametersLoaded) {
       return;
     }
 
@@ -1102,7 +1134,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       _replaceObject(updated);
       if (!mounted) return;
       setState(() {
-        if (_selectedObject != null && _objectKey(_selectedObject!) == _objectKey(object)) {
+        if (_selectedObject != null &&
+            _objectKey(_selectedObject!) == _objectKey(object)) {
           _selectedObject = updated;
         }
       });
@@ -1111,7 +1144,8 @@ class _DbObjectExplorerShellState extends State<DbObjectExplorerShell> {
       _replaceObject(updated);
       if (!mounted) return;
       setState(() {
-        if (_selectedObject != null && _objectKey(_selectedObject!) == _objectKey(object)) {
+        if (_selectedObject != null &&
+            _objectKey(_selectedObject!) == _objectKey(object)) {
           _selectedObject = updated;
         }
       });
@@ -1293,7 +1327,8 @@ class _ParameterChips extends StatelessWidget {
   }
 
   String _directionLabel(String? value) {
-    final clean = (value ?? 'IN').trim().toUpperCase().replaceAll('OUTPUT', 'OUT');
+    final clean =
+        (value ?? 'IN').trim().toUpperCase().replaceAll('OUTPUT', 'OUT');
     if (clean == 'IN/OUT' || clean == 'INOUT') return 'IN OUT';
     if (clean == 'RETURN') return 'OUT';
     if (clean == 'OUT' || clean == 'IN OUT') return clean;
