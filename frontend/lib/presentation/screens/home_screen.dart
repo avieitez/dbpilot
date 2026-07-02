@@ -1557,6 +1557,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await _authService.signOut();
       if (!mounted) return;
+      QueryEditorScreen.clearSessionCache();
       setState(() => _authSession = null);
       PlanAccessService.instance.updateSession(null);
       widget.onSignedOut();

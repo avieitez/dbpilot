@@ -85,6 +85,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   final List<String> _messages = [];
 
   String get _sessionKey => [
+        PlanAccessService.instance.uid ?? 'signed-out',
         widget.connection.provider.apiValue,
         widget.connection.name,
         widget.connectionSummary,

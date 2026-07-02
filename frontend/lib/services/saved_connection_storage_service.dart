@@ -5,11 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/connection_request.dart';
 import '../models/database_provider.dart';
+import 'plan_access_service.dart';
 
 class SavedConnectionStorageService {
   static const String _storageKey = 'saved_connections';
   static const String _activeConnectionIdKey = 'active_connection_id';
   static const String _passwordKeyPrefix = 'connection_password_';
+  static const String _migrationOwnerKey =
+      'saved_connections.user_scope_migration_owner';
 
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(
@@ -22,7 +25,9 @@ class SavedConnectionStorageService {
     String? existingId,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final items = prefs.getStringList(_storageKey) ?? <String>[];
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final items = prefs.getStringList(_userStorageKey(uid)) ?? <String>[];
 
     final connectionId = (existingId != null && existingId.trim().isNotEmpty)
         ? existingId
@@ -52,14 +57,17 @@ class SavedConnectionStorageService {
     }).toList();
 
     filtered.add(newItem);
-    await prefs.setStringList(_storageKey, filtered);
+    await prefs.setStringList(_userStorageKey(uid), filtered);
 
-    await _savePassword(connectionId, request.password);
+    await _savePassword(uid, connectionId, request.password);
   }
 
   Future<List<Map<String, dynamic>>> getSavedConnections() async {
     final prefs = await SharedPreferences.getInstance();
-    final items = prefs.getStringList(_storageKey) ?? <String>[];
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final storageKey = _userStorageKey(uid);
+    final items = prefs.getStringList(storageKey) ?? <String>[];
 
     bool changed = false;
     final migratedItems = <String>[];
@@ -98,7 +106,7 @@ class SavedConnectionStorageService {
     }
 
     if (changed) {
-      await prefs.setStringList(_storageKey, migratedItems);
+      await prefs.setStringList(storageKey, migratedItems);
     }
 
     return result;
@@ -121,7 +129,11 @@ class SavedConnectionStorageService {
 
   Future<void> deleteConnectionById(String id) async {
     final prefs = await SharedPreferences.getInstance();
-    final items = prefs.getStringList(_storageKey) ?? <String>[];
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final storageKey = _userStorageKey(uid);
+    final activeConnectionKey = _userActiveConnectionIdKey(uid);
+    final items = prefs.getStringList(storageKey) ?? <String>[];
 
     final filtered = items.where((item) {
       try {
@@ -132,41 +144,47 @@ class SavedConnectionStorageService {
       }
     }).toList();
 
-    await prefs.setStringList(_storageKey, filtered);
-    await _deletePassword(id);
+    await prefs.setStringList(storageKey, filtered);
+    await _deletePassword(uid, id);
 
-    final activeId = prefs.getString(_activeConnectionIdKey);
+    final activeId = prefs.getString(activeConnectionKey);
     if (activeId == id) {
-      await prefs.remove(_activeConnectionIdKey);
+      await prefs.remove(activeConnectionKey);
     }
   }
 
   Future<void> clearAllConnections() async {
     final prefs = await SharedPreferences.getInstance();
+    final uid = _requireUid();
     final connections = await getSavedConnections();
 
     for (final connection in connections) {
       final id = ensureConnectionId(connection);
-      await _deletePassword(id);
+      await _deletePassword(uid, id);
     }
 
-    await prefs.remove(_storageKey);
-    await prefs.remove(_activeConnectionIdKey);
+    await prefs.remove(_userStorageKey(uid));
+    await prefs.remove(_userActiveConnectionIdKey(uid));
   }
 
   Future<void> setActiveConnectionId(String connectionId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_activeConnectionIdKey, connectionId);
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    await prefs.setString(_userActiveConnectionIdKey(uid), connectionId);
   }
 
   Future<String?> getActiveConnectionId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_activeConnectionIdKey);
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    return prefs.getString(_userActiveConnectionIdKey(uid));
   }
 
   Future<void> clearActiveConnectionId() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_activeConnectionIdKey);
+    final uid = _requireUid();
+    await prefs.remove(_userActiveConnectionIdKey(uid));
   }
 
   Future<Map<String, dynamic>?> getActiveConnection() async {
@@ -177,14 +195,15 @@ class SavedConnectionStorageService {
   }
 
   Future<String?> getPasswordByConnectionId(String connectionId) async {
-    return _secureStorage.read(key: _passwordStorageKey(connectionId));
+    final uid = _requireUid();
+    return _secureStorage.read(key: _passwordStorageKey(uid, connectionId));
   }
 
   Future<void> updatePasswordByConnectionId(
     String connectionId,
     String password,
   ) async {
-    await _savePassword(connectionId, password);
+    await _savePassword(_requireUid(), connectionId, password);
   }
 
   DatabaseProvider providerFromName(String name) {
@@ -232,20 +251,76 @@ class SavedConnectionStorageService {
     ].join('|');
   }
 
-  String _passwordStorageKey(String connectionId) {
-    return '$_passwordKeyPrefix$connectionId';
+  String _passwordStorageKey(String uid, String connectionId) {
+    return '$_passwordKeyPrefix${uid}_$connectionId';
   }
 
-  Future<void> _savePassword(String connectionId, String password) async {
+  Future<void> _savePassword(
+    String uid,
+    String connectionId,
+    String password,
+  ) async {
     await _secureStorage.write(
-      key: _passwordStorageKey(connectionId),
+      key: _passwordStorageKey(uid, connectionId),
       value: password,
     );
   }
 
-  Future<void> _deletePassword(String connectionId) async {
+  Future<void> _deletePassword(String uid, String connectionId) async {
     await _secureStorage.delete(
-      key: _passwordStorageKey(connectionId),
+      key: _passwordStorageKey(uid, connectionId),
     );
+  }
+
+  String _requireUid() {
+    final uid = PlanAccessService.instance.uid?.trim();
+    if (uid == null || uid.isEmpty) {
+      throw StateError('A signed-in user is required to access connections.');
+    }
+    return uid;
+  }
+
+  String _userStorageKey(String uid) => '$_storageKey.$uid';
+
+  String _userActiveConnectionIdKey(String uid) =>
+      '$_activeConnectionIdKey.$uid';
+
+  Future<void> _migrateLegacyDataIfNeeded(
+    SharedPreferences prefs,
+    String uid,
+  ) async {
+    final migrationOwner = prefs.getString(_migrationOwnerKey);
+    if (migrationOwner != null) return;
+
+    final legacyItems = prefs.getStringList(_storageKey) ?? <String>[];
+    if (legacyItems.isNotEmpty && !(prefs.containsKey(_userStorageKey(uid)))) {
+      await prefs.setStringList(_userStorageKey(uid), legacyItems);
+
+      for (final item in legacyItems) {
+        try {
+          final map = jsonDecode(item) as Map<String, dynamic>;
+          final connectionId = ensureConnectionId(map);
+          final legacyPassword = await _secureStorage.read(
+            key: '$_passwordKeyPrefix$connectionId',
+          );
+          if (legacyPassword != null) {
+            await _savePassword(uid, connectionId, legacyPassword);
+            await _secureStorage.delete(
+              key: '$_passwordKeyPrefix$connectionId',
+            );
+          }
+        } catch (_) {
+          // Keep migrating valid entries when a legacy item is malformed.
+        }
+      }
+    }
+
+    final legacyActiveId = prefs.getString(_activeConnectionIdKey);
+    if (legacyActiveId != null && legacyActiveId.isNotEmpty) {
+      await prefs.setString(_userActiveConnectionIdKey(uid), legacyActiveId);
+    }
+    await prefs.remove(_storageKey);
+    await prefs.remove(_activeConnectionIdKey);
+    await prefs.setString(_migrationOwnerKey, uid);
   }
 }

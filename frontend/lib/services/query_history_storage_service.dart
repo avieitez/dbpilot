@@ -42,6 +42,7 @@ class QueryHistoryItem {
 
 class QueryHistoryStorageService {
   static const _storageKey = 'query_history';
+  static const _migrationOwnerKey = 'query_history.user_scope_migration_owner';
 
   Future<void> saveQuery({
     required String provider,
@@ -49,8 +50,11 @@ class QueryHistoryStorageService {
     required String sql,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final storageKey = _userStorageKey(uid);
 
-    final items = prefs.getStringList(_storageKey) ?? [];
+    final items = prefs.getStringList(storageKey) ?? [];
 
     final historyItem = QueryHistoryItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -69,15 +73,17 @@ class QueryHistoryStorageService {
       items.removeRange(historyLimit, items.length);
     }
 
-    await prefs.setStringList(_storageKey, items);
+    await prefs.setStringList(storageKey, items);
   }
 
   Future<List<QueryHistoryItem>> getQueries({
     String? provider,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
 
-    final items = prefs.getStringList(_storageKey) ?? [];
+    final items = prefs.getStringList(_userStorageKey(uid)) ?? [];
 
     final result = items.map((e) {
       return QueryHistoryItem.fromMap(
@@ -100,7 +106,10 @@ class QueryHistoryStorageService {
 
   Future<void> deleteQuery(String id) async {
     final prefs = await SharedPreferences.getInstance();
-    final items = prefs.getStringList(_storageKey) ?? [];
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final storageKey = _userStorageKey(uid);
+    final items = prefs.getStringList(storageKey) ?? [];
 
     final filtered = items.where((item) {
       try {
@@ -111,7 +120,7 @@ class QueryHistoryStorageService {
       }
     }).toList();
 
-    await prefs.setStringList(_storageKey, filtered);
+    await prefs.setStringList(storageKey, filtered);
   }
 
   Future<void> deleteQueriesForConnection({
@@ -119,7 +128,10 @@ class QueryHistoryStorageService {
     required String connectionName,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final items = prefs.getStringList(_storageKey) ?? [];
+    final uid = _requireUid();
+    await _migrateLegacyDataIfNeeded(prefs, uid);
+    final storageKey = _userStorageKey(uid);
+    final items = prefs.getStringList(storageKey) ?? [];
     final normalizedProvider = provider.trim().toLowerCase();
     final normalizedConnectionName = connectionName.trim().toLowerCase();
 
@@ -137,11 +149,38 @@ class QueryHistoryStorageService {
       }
     }).toList();
 
-    await prefs.setStringList(_storageKey, filtered);
+    await prefs.setStringList(storageKey, filtered);
   }
 
   Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
+    final uid = _requireUid();
+    await prefs.remove(_userStorageKey(uid));
+  }
+
+  String _requireUid() {
+    final uid = PlanAccessService.instance.uid?.trim();
+    if (uid == null || uid.isEmpty) {
+      throw StateError('A signed-in user is required to access query history.');
+    }
+    return uid;
+  }
+
+  String _userStorageKey(String uid) => '$_storageKey.$uid';
+
+  Future<void> _migrateLegacyDataIfNeeded(
+    SharedPreferences prefs,
+    String uid,
+  ) async {
+    final migrationOwner = prefs.getString(_migrationOwnerKey);
+    if (migrationOwner != null) return;
+
+    final legacyItems = prefs.getStringList(_storageKey) ?? <String>[];
+    final userKey = _userStorageKey(uid);
+    if (legacyItems.isNotEmpty && !prefs.containsKey(userKey)) {
+      await prefs.setStringList(userKey, legacyItems);
+    }
     await prefs.remove(_storageKey);
+    await prefs.setString(_migrationOwnerKey, uid);
   }
 }
