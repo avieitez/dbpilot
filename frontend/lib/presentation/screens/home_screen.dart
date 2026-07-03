@@ -159,6 +159,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _reloadQueries() async {
+    final queries = await _queryHistoryService.getQueries();
+    if (!mounted) return;
+    setState(() => _queries = queries);
+  }
+
   String _providerLabel(String value) {
     return DatabaseProviderX.fromString(value).label;
   }
@@ -296,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => _providerMain(request),
         ),
       );
+      await _reloadQueries();
     } catch (error) {
       if (!mounted) return;
 
@@ -345,6 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       );
+      await _reloadQueries();
     } catch (error) {
       if (!mounted) return;
 
@@ -404,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       );
+      await _reloadQueries();
     } catch (error) {
       if (!mounted) return;
 
@@ -2339,16 +2348,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() {
-          if (_selectedIndex != index) {
-            if (index == 0) _expandedConnectionProvider = null;
-            if (index == 1) {
-              _expandedQueryProvider = null;
-              _expandedQueryConnectionKey = null;
+        onTap: () async {
+          setState(() {
+            if (_selectedIndex != index) {
+              if (index == 0) _expandedConnectionProvider = null;
+              if (index == 1) {
+                _expandedQueryProvider = null;
+                _expandedQueryConnectionKey = null;
+              }
             }
-          }
-          _selectedIndex = index;
-        }),
+            _selectedIndex = index;
+          });
+          if (index == 1) await _reloadQueries();
+        },
         child: AnimatedScale(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
