@@ -47,11 +47,7 @@ class PlanAccessService {
 
   bool canUse(ProFeature feature) => isPro;
 
-  bool canCreateConnection({
-    required int connectionCount,
-    required bool providerAlreadyUsed,
-  }) {
-    return isPro ||
-        (connectionCount < freeConnectionLimit && !providerAlreadyUsed);
+  bool canCreateConnection({required int connectionCount}) {
+    return isPro || connectionCount < freeConnectionLimit;
   }
 }

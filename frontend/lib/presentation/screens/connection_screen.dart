@@ -273,7 +273,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final request = _buildRequest();
-    if (!await _canSaveForCurrentPlan(request.provider)) return;
+    if (!await _canSaveForCurrentPlan()) return;
     final nameError = await _validateUniqueConnectionName(request.name);
     if (nameError != null) {
       if (!mounted) return;
@@ -305,20 +305,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     Navigator.of(context).pop(true);
   }
 
-  Future<bool> _canSaveForCurrentPlan(DatabaseProvider provider) async {
+  Future<bool> _canSaveForCurrentPlan() async {
     if (_isEditing || PlanAccessService.instance.isPro) return true;
 
     final connections = await _storageService.getSavedConnections();
-    final providerAlreadyUsed = connections.any(
-      (connection) =>
-          DatabaseProviderX.fromString(
-            connection['provider']?.toString() ?? '',
-          ) ==
-          provider,
-    );
     final allowed = PlanAccessService.instance.canCreateConnection(
       connectionCount: connections.length,
-      providerAlreadyUsed: providerAlreadyUsed,
     );
     if (allowed || !mounted) return allowed;
 
@@ -327,7 +319,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       builder: (context) => AlertDialog(
         title: const Text('DBPilot Pro'),
         content: const Text(
-          'Free accounts can save up to 3 connections, with one connection per database provider.',
+          'Free accounts can save up to 3 connections.',
         ),
         actions: [
           TextButton(
