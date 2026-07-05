@@ -20,7 +20,7 @@ class PostgreSqlMain extends StatelessWidget {
     return DbObjectExplorerShell(
       providerLabel: 'POSTGRESQL',
       connectionSummary:
-          '${connection.name}\n${connection.host} / ${databaseName.isEmpty ? 'database required' : databaseName}',
+          'Connection: ${connection.name}\nDatabase: ${databaseName.isEmpty ? 'database required' : databaseName}',
       connection: connection,
       onUpgradeRequested: onUpgradeRequested,
     );

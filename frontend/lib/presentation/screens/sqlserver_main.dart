@@ -21,7 +21,7 @@ class SqlServerMain extends StatelessWidget {
     return DbObjectExplorerShell(
       providerLabel: 'SQL SERVER',
       connectionSummary:
-          '${connection.name}\n${connection.host} / $databaseName',
+          'Connection: ${connection.name}\nDatabase: $databaseName',
       connection: connection.copyWith(database: databaseName),
       onUpgradeRequested: onUpgradeRequested,
     );

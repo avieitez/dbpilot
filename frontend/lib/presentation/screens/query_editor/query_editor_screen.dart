@@ -662,7 +662,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     children: [
                       const SizedBox(height: 4),
                       Text(
-                        item.executedAt.toString(),
+                        _formatDateTime(item.executedAt),
                         style: const TextStyle(fontSize: 12),
                       ),
                       const SizedBox(height: 4),
@@ -970,10 +970,24 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   String _formatDateTime(DateTime value) {
-    String two(int n) => n.toString().padLeft(2, '0');
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final minute = value.minute.toString().padLeft(2, '0');
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
     final period = value.hour >= 12 ? 'PM' : 'AM';
-    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
+    return '${months[value.month - 1]} ${value.day}, ${value.year} · $hour12:$minute $period';
   }
 
   void _formatSql({bool showMessage = true, bool requestFocus = true}) {
@@ -1062,6 +1076,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       child: Scaffold(
         resizeToAvoidBottomInset: false,
         appBar: AppBar(
+          toolbarHeight: 76,
           titleSpacing: 0,
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1069,11 +1084,11 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               Text('${widget.providerLabel} · Query Editor',
                   style: theme.textTheme.titleMedium
                       ?.copyWith(fontWeight: FontWeight.w800)),
-              Text(widget.connectionSummary.replaceAll('\n', ' · '),
-                  maxLines: 1,
+              Text(widget.connectionSummary,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall
-                      ?.copyWith(color: colors.onSurfaceVariant)),
+                      ?.copyWith(color: colors.onSurfaceVariant, height: 1.2)),
             ],
           ),
         ),

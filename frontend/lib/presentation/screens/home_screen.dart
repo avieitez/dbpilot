@@ -8,6 +8,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants/app_assets.dart';
 import '../../core/strings/strings.dart';
@@ -45,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _appName = 'DBPilot';
   static const String _appVersion = '0.1.0';
   static const String _appBuildNumber = '1';
-  static const String _supportEmail = 'support@dbpilot.app';
+  static const String _supportEmail = 'dbpilot.app@gmail.com';
   static const List<IconData> _avatarIcons = [
     Icons.person_rounded,
     Icons.terminal_rounded,
@@ -347,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
             connection: request,
             providerLabel: request.provider.label.toUpperCase(),
             connectionSummary:
-                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
+                'Connection: ${request.name}\nDatabase: ${_connectionTarget(request)}',
             onUpgradeRequested: _openPaywall,
           ),
         ),
@@ -406,7 +407,7 @@ class _HomeScreenState extends State<HomeScreen> {
             connection: request,
             providerLabel: request.provider.label.toUpperCase(),
             connectionSummary:
-                '${request.name}\n${request.host} / ${_connectionTarget(request)}',
+                'Connection: ${request.name}\nDatabase: ${_connectionTarget(request)}',
             initialSql: query.sql,
             onUpgradeRequested: _openPaywall,
           ),
@@ -559,10 +560,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _formatDateTime(DateTime value) {
-    String two(int n) => n.toString().padLeft(2, '0');
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final minute = value.minute.toString().padLeft(2, '0');
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
     final period = value.hour >= 12 ? 'PM' : 'AM';
-    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(hour12)}:${two(value.minute)} $period';
+    return '${months[value.month - 1]} ${value.day}, ${value.year} · $hour12:$minute $period';
   }
 
   Widget _providerIcon(DatabaseProvider provider, {bool active = false}) {
@@ -1470,15 +1485,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _actionTile(
               icon: Icons.description_outlined,
-              title: 'Terms',
+              title: 'Terms of Service',
               subtitle: 'Usage conditions and responsibilities',
               onTap: _showTerms,
             ),
             _actionTile(
               icon: Icons.support_agent_rounded,
-              title: 'Contact / support',
+              title: 'Support',
               subtitle: _supportEmail,
               onTap: _showSupport,
+            ),
+            _actionTile(
+              icon: Icons.bug_report_outlined,
+              title: 'Report a bug',
+              subtitle: 'Open your email app',
+              onTap: _reportBug,
             ),
             _actionTile(
               icon: Icons.copy_all_rounded,
@@ -2233,7 +2254,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showTerms() {
     _showAboutTextDialog(
-      title: 'Terms',
+      title: 'Terms of Service',
       icon: Icons.description_outlined,
       body:
           'Use DBPilot only with databases and credentials you are authorized to access.\n\n'
@@ -2245,7 +2266,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showSupport() {
     _showAboutTextDialog(
-      title: 'Contact / support',
+      title: 'Support',
       icon: Icons.support_agent_rounded,
       body: 'For support, send an email to:\n\n'
           '$_supportEmail\n\n'
@@ -2262,6 +2283,29 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _reportBug() async {
+    final emailUri = Uri(
+      scheme: 'mailto',
+      path: _supportEmail,
+      queryParameters: const {'subject': 'DBPilot - Bug report'},
+    );
+
+    try {
+      final opened = await launchUrl(
+        emailUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !mounted) return;
+    } catch (_) {
+      if (!mounted) return;
+    }
+
+    await Clipboard.setData(const ClipboardData(text: _supportEmail));
+    if (mounted) {
+      _showInfo('No email app was found. Support email copied.');
+    }
   }
 
   Future<void> _copyAppInfo() async {

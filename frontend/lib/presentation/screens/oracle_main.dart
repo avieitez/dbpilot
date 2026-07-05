@@ -23,7 +23,8 @@ class OracleMain extends StatelessWidget {
 
     return DbObjectExplorerShell(
       providerLabel: 'ORACLE',
-      connectionSummary: '${connection.name}\n${connection.host} / $targetName',
+      connectionSummary:
+          'Connection: ${connection.name}\nDatabase: $targetName',
       connection: connection,
       onUpgradeRequested: onUpgradeRequested,
       loadFromBackend: true,
