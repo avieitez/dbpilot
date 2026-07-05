@@ -2626,7 +2626,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         });
         return;
       }
-      await _subscriptionService.buyPro(product);
+      await _subscriptionService.buyPro(product, uid: uid);
     } catch (error) {
       if (!mounted) return;
       setState(() {

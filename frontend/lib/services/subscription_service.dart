@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import 'auth_service.dart';
@@ -31,6 +34,7 @@ class SubscriptionPurchaseResult {
 }
 
 class SubscriptionService {
+  static const String _apiBaseUrl = 'https://dbpilot-5g16.onrender.com';
   static const String proMonthlyProductId = 'dbpilot_pro_monthly';
 
   SubscriptionService({InAppPurchase? inAppPurchase})
@@ -38,7 +42,8 @@ class SubscriptionService {
 
   final InAppPurchase _inAppPurchase;
 
-  Stream<List<PurchaseDetails>> get purchaseStream => _inAppPurchase.purchaseStream;
+  Stream<List<PurchaseDetails>> get purchaseStream =>
+      _inAppPurchase.purchaseStream;
 
   Future<bool> isStoreAvailable() => _inAppPurchase.isAvailable();
 
@@ -60,13 +65,17 @@ class SubscriptionService {
     );
   }
 
-  Future<void> buyPro(SubscriptionProduct product) async {
+  Future<void> buyPro(SubscriptionProduct product,
+      {required String uid}) async {
     final response = await _inAppPurchase.queryProductDetails({product.id});
     if (response.productDetails.isEmpty) {
       throw Exception('Subscription product not found.');
     }
 
-    final purchaseParam = PurchaseParam(productDetails: response.productDetails.first);
+    final purchaseParam = PurchaseParam(
+      productDetails: response.productDetails.first,
+      applicationUserName: uid,
+    );
     await _inAppPurchase.buyNonConsumable(purchaseParam: purchaseParam);
   }
 
@@ -117,12 +126,41 @@ class SubscriptionService {
     required String productId,
     required String purchaseToken,
   }) async {
-    // TODO: Send uid + productId + purchaseToken to the DBPilot backend.
-    // The backend must verify the token with Google Play Developer API and
-    // return the entitlement. Until that endpoint exists, keep the user Free.
-    if (uid.trim().isEmpty || productId.trim().isEmpty || purchaseToken.trim().isEmpty) {
+    if (uid.trim().isEmpty ||
+        productId.trim().isEmpty ||
+        purchaseToken.trim().isEmpty) {
       return SubscriptionPlan.free;
     }
-    return SubscriptionPlan.free;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.uid != uid) return SubscriptionPlan.free;
+
+    try {
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) return SubscriptionPlan.free;
+      final response = await http
+          .post(
+            Uri.parse(
+              '$_apiBaseUrl/api/v1/subscriptions/google-play/verify',
+            ),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'productId': productId,
+              'purchaseToken': purchaseToken,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return SubscriptionPlan.free;
+
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      return payload['plan']?.toString().toLowerCase() == 'pro'
+          ? SubscriptionPlan.pro
+          : SubscriptionPlan.free;
+    } catch (_) {
+      return SubscriptionPlan.free;
+    }
   }
 }

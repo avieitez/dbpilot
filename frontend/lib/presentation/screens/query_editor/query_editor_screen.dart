@@ -1009,8 +1009,15 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       r'\bset\b': '\nSET',
     };
 
-    replacements.forEach((pattern, replacement) {
-      sql = sql.replaceAll(RegExp(pattern, caseSensitive: false), replacement);
+    sql = _transformUnquotedSql(sql, (segment) {
+      var formattedSegment = segment;
+      replacements.forEach((pattern, replacement) {
+        formattedSegment = formattedSegment.replaceAll(
+          RegExp(pattern, caseSensitive: false),
+          replacement,
+        );
+      });
+      return formattedSegment;
     });
 
     final formatted = sql.replaceAll(RegExp(r'\n{2,}'), '\n').trim();
@@ -1019,6 +1026,30 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     _sqlController.text = formatted;
     if (showMessage) _addMessage(QeStrings.sqlFormatted);
     if (requestFocus) _editorFocusNode.requestFocus();
+  }
+
+  String _transformUnquotedSql(
+    String sql,
+    String Function(String segment) transform,
+  ) {
+    final protectedSegments = RegExp(
+      r'''(--[^\n]*|/\*[\s\S]*?\*/|'(?:''|[^'])*'|"(?:""|[^"])*"|\[(?:\]\]|[^\]])*\])''',
+    );
+    final buffer = StringBuffer();
+    var index = 0;
+
+    for (final match in protectedSegments.allMatches(sql)) {
+      if (match.start > index) {
+        buffer.write(transform(sql.substring(index, match.start)));
+      }
+      buffer.write(match.group(0));
+      index = match.end;
+    }
+
+    if (index < sql.length) {
+      buffer.write(transform(sql.substring(index)));
+    }
+    return buffer.toString();
   }
 
   void _clearEditor() {
@@ -1143,8 +1174,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   children: [
                     _EditorHeader(
                       providerLabel: widget.providerLabel,
+                      objectType: widget.objectType,
                       objectName: widget.objectName,
-                      schemaName: widget.schemaName,
                       onClear: _clearEditor,
                     ),
                     Expanded(
@@ -2473,14 +2504,14 @@ class _ToolbarButton extends StatelessWidget {
 class _EditorHeader extends StatelessWidget {
   const _EditorHeader({
     required this.providerLabel,
+    required this.objectType,
     required this.objectName,
-    required this.schemaName,
     required this.onClear,
   });
 
   final String providerLabel;
+  final String? objectType;
   final String? objectName;
-  final String? schemaName;
   final VoidCallback onClear;
 
   @override
@@ -2506,7 +2537,7 @@ class _EditorHeader extends StatelessWidget {
             child: Text(
               objectLabel == null
                   ? '$providerLabel SQL console'
-                  : '$providerLabel · $objectLabel',
+                  : '${_objectTypeLabel ?? 'Object'} · $objectLabel',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelLarge?.copyWith(
@@ -2553,11 +2584,21 @@ class _EditorHeader extends StatelessWidget {
   String? get _objectLabel {
     final object = objectName?.trim();
     if (object == null || object.isEmpty) return null;
+    return object;
+  }
 
-    final schema = schemaName?.trim();
-    if (schema == null || schema.isEmpty) return object;
+  String? get _objectTypeLabel {
+    final rawType = objectType?.trim().toLowerCase();
+    if (rawType == null || rawType.isEmpty) return null;
+    final normalized = rawType.replaceAll('_', ' ');
+    if (normalized == 'stored procedure') return 'Procedure';
+    if (normalized == 'base table') return 'Table';
 
-    return '$schema.$object';
+    return normalized
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
   }
 }
 
@@ -2900,10 +2941,16 @@ class _SqlTextEditingController extends TextEditingController {
       keywords,
     ].where((value) => value.isNotEmpty).join('|');
 
-    _tokenPattern = RegExp(
-      "(--[^\\n]*|'(?:''|[^'])*'|\\b(?:$wordTokens)\\b|\\b\\d+(?:\\.\\d+)?\\b)",
-      caseSensitive: false,
-    );
+    final tokenPattern = [
+      r'--[^\n]*',
+      r'/\*[\s\S]*?\*/',
+      r"'(?:''|[^'])*'",
+      r'"(?:""|[^"])*"',
+      r'\[(?:\]\]|[^\]])*\]',
+      '\\b(?:$wordTokens)\\b',
+      r'\b\d+(?:\.\d+)?\b',
+    ].join('|');
+    _tokenPattern = RegExp('($tokenPattern)', caseSensitive: false);
   }
 
   static const List<String> _keywords = [
@@ -2976,8 +3023,13 @@ class _SqlTextEditingController extends TextEditingController {
             text: text.substring(index, match.start), style: baseStyle));
       }
       final token = match.group(0)!;
+      final preserveCase = token.startsWith('--') ||
+          token.startsWith('/*') ||
+          token.startsWith("'") ||
+          token.startsWith('"') ||
+          token.startsWith('[');
       spans.add(TextSpan(
-          text: token.toUpperCase(),
+          text: preserveCase ? token : token.toUpperCase(),
           style: baseStyle.merge(_styleForToken(token, match.end))));
       index = match.end;
     }
@@ -2990,7 +3042,7 @@ class _SqlTextEditingController extends TextEditingController {
   }
 
   TextStyle _styleForToken(String token, int tokenEnd) {
-    if (token.startsWith('--')) {
+    if (token.startsWith('--') || token.startsWith('/*')) {
       return TextStyle(
         color: highContrast ? const Color(0xFFB7C0CC) : const Color(0xFF7A8797),
         fontStyle: FontStyle.italic,

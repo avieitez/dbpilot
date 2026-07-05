@@ -1,0 +1,252 @@
+import hashlib
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from functools import lru_cache
+from urllib.parse import quote
+
+import google.auth
+from google.api_core.exceptions import AlreadyExists
+from google.auth.transport.requests import AuthorizedSession
+from google.oauth2 import service_account
+
+from app.core.firebase_client import (
+    get_firestore_client,
+    get_service_account_info,
+)
+
+
+ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+DEFAULT_PACKAGE_NAME = "com.avieitez.dbpilot"
+DEFAULT_PRODUCT_ID = "dbpilot_pro_monthly"
+ENTITLED_STATES = {
+    "SUBSCRIPTION_STATE_ACTIVE",
+    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+    "SUBSCRIPTION_STATE_CANCELED",
+}
+
+
+class SubscriptionVerificationError(Exception):
+    pass
+
+
+class PurchaseTokenAlreadyClaimedError(SubscriptionVerificationError):
+    pass
+
+
+@dataclass(frozen=True)
+class SubscriptionEntitlement:
+    active: bool
+    state: str | None
+    product_id: str | None
+    expiry_time: str | None
+
+    @property
+    def plan(self) -> str:
+        return "pro" if self.active else "free"
+
+
+@lru_cache(maxsize=1)
+def _authorized_session() -> AuthorizedSession:
+    account_info = get_service_account_info("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
+    if account_info is None:
+        account_info = get_service_account_info("FIREBASE_SERVICE_ACCOUNT_JSON")
+
+    if account_info is not None:
+        credentials = service_account.Credentials.from_service_account_info(
+            account_info,
+            scopes=[ANDROID_PUBLISHER_SCOPE],
+        )
+    else:
+        credentials, _ = google.auth.default(scopes=[ANDROID_PUBLISHER_SCOPE])
+    return AuthorizedSession(credentials)
+
+
+class GooglePlaySubscriptionService:
+    def __init__(self):
+        self.package_name = os.getenv(
+            "GOOGLE_PLAY_PACKAGE_NAME", DEFAULT_PACKAGE_NAME
+        ).strip()
+        self.product_id = os.getenv(
+            "GOOGLE_PLAY_PRO_PRODUCT_ID", DEFAULT_PRODUCT_ID
+        ).strip()
+
+    def verify_and_assign(
+        self,
+        *,
+        uid: str,
+        product_id: str,
+        purchase_token: str,
+    ) -> SubscriptionEntitlement:
+        if product_id != self.product_id:
+            raise SubscriptionVerificationError("Unknown subscription product.")
+
+        payload = self._get_subscription(purchase_token)
+        entitlement = self._entitlement_from_payload(payload, product_id)
+        self._validate_account_identifier(payload, uid)
+
+        if entitlement.active:
+            self._assign_token(uid, purchase_token, payload, entitlement)
+        return entitlement
+
+    def status_for_user(self, uid: str) -> SubscriptionEntitlement:
+        firestore_client = get_firestore_client()
+        subscription_ref = (
+            firestore_client.collection("users")
+            .document(uid)
+            .collection("subscriptions")
+            .document("google_play")
+        )
+        snapshot = subscription_ref.get()
+        if not snapshot.exists:
+            return SubscriptionEntitlement(False, None, None, None)
+
+        stored = snapshot.to_dict() or {}
+        purchase_token = str(stored.get("purchaseToken", "")).strip()
+        product_id = str(stored.get("productId", self.product_id)).strip()
+        if not purchase_token or product_id != self.product_id:
+            return SubscriptionEntitlement(False, None, product_id or None, None)
+
+        try:
+            payload = self._get_subscription(purchase_token)
+            entitlement = self._entitlement_from_payload(payload, product_id)
+        except SubscriptionVerificationError:
+            return SubscriptionEntitlement(False, None, product_id, None)
+
+        subscription_ref.set(
+            self._subscription_record(purchase_token, payload, entitlement),
+            merge=True,
+        )
+        return entitlement
+
+    def _get_subscription(self, purchase_token: str) -> dict:
+        encoded_package = quote(self.package_name, safe="")
+        encoded_token = quote(purchase_token, safe="")
+        url = (
+            "https://androidpublisher.googleapis.com/androidpublisher/v3/"
+            f"applications/{encoded_package}/purchases/subscriptionsv2/"
+            f"tokens/{encoded_token}"
+        )
+        try:
+            response = _authorized_session().get(url, timeout=15)
+        except Exception as exc:
+            raise SubscriptionVerificationError(
+                "Google Play verification is temporarily unavailable."
+            ) from exc
+
+        if response.status_code != 200:
+            raise SubscriptionVerificationError(
+                f"Google Play rejected the purchase token ({response.status_code})."
+            )
+        return response.json()
+
+    def _entitlement_from_payload(
+        self,
+        payload: dict,
+        expected_product_id: str,
+    ) -> SubscriptionEntitlement:
+        line_items = payload.get("lineItems") or []
+        matching_items = [
+            item for item in line_items if item.get("productId") == expected_product_id
+        ]
+        if not matching_items:
+            raise SubscriptionVerificationError(
+                "Purchase token does not contain the expected product."
+            )
+
+        expiry_time = max(
+            (str(item.get("expiryTime", "")) for item in matching_items),
+            default="",
+        )
+        expiry = self._parse_timestamp(expiry_time)
+        state = str(payload.get("subscriptionState", "")) or None
+        active = (
+            state in ENTITLED_STATES
+            and expiry is not None
+            and expiry > datetime.now(timezone.utc)
+        )
+        return SubscriptionEntitlement(
+            active=active,
+            state=state,
+            product_id=expected_product_id,
+            expiry_time=expiry_time or None,
+        )
+
+    def _validate_account_identifier(self, payload: dict, uid: str) -> None:
+        identifiers = payload.get("externalAccountIdentifiers") or {}
+        account_id = str(
+            identifiers.get("obfuscatedExternalAccountId", "")
+        ).strip()
+        if account_id and account_id != uid:
+            raise SubscriptionVerificationError(
+                "Purchase belongs to a different DBPilot account."
+            )
+
+    def _assign_token(
+        self,
+        uid: str,
+        purchase_token: str,
+        payload: dict,
+        entitlement: SubscriptionEntitlement,
+    ) -> None:
+        firestore_client = get_firestore_client()
+        token_hash = self._token_hash(purchase_token)
+        token_ref = firestore_client.collection("play_purchase_tokens").document(
+            token_hash
+        )
+        try:
+            token_ref.create({"uid": uid, "productId": self.product_id})
+        except AlreadyExists:
+            token_snapshot = token_ref.get()
+            owner_uid = str((token_snapshot.to_dict() or {}).get("uid", ""))
+            if owner_uid and owner_uid != uid:
+                raise PurchaseTokenAlreadyClaimedError(
+                    "Purchase is already linked to another DBPilot account."
+                )
+
+        subscription_ref = (
+            firestore_client.collection("users")
+            .document(uid)
+            .collection("subscriptions")
+            .document("google_play")
+        )
+        subscription_ref.set(
+            self._subscription_record(purchase_token, payload, entitlement)
+        )
+
+        linked_token = str(payload.get("linkedPurchaseToken", "")).strip()
+        if linked_token:
+            linked_ref = firestore_client.collection(
+                "play_purchase_tokens"
+            ).document(self._token_hash(linked_token))
+            linked_ref.delete()
+
+    def _subscription_record(
+        self,
+        purchase_token: str,
+        payload: dict,
+        entitlement: SubscriptionEntitlement,
+    ) -> dict:
+        return {
+            "purchaseToken": purchase_token,
+            "purchaseTokenHash": self._token_hash(purchase_token),
+            "productId": entitlement.product_id,
+            "state": entitlement.state,
+            "expiryTime": entitlement.expiry_time,
+            "active": entitlement.active,
+            "latestOrderId": payload.get("latestOrderId"),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def _token_hash(purchase_token: str) -> str:
+        return hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None

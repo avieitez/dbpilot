@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.connections import router as connections_router
 from app.routers.db_explorer import router as db_explorer_router
+from app.routers.subscriptions import router as subscriptions_router
 
 app = FastAPI(
     title="DBPilot API",
@@ -23,6 +24,7 @@ def health():
 
 app.include_router(connections_router)
 app.include_router(db_explorer_router)
+app.include_router(subscriptions_router)
 
 @app.get("/")
 def root():
