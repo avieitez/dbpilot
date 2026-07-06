@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -16,6 +17,7 @@ import '../../models/connection_request.dart';
 import '../../models/database_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/connection_api_service.dart';
+import '../../services/connection_backup_service.dart';
 import '../../services/plan_access_service.dart';
 import '../../services/query_history_storage_service.dart';
 import '../../services/saved_connection_storage_service.dart';
@@ -73,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _queryHistoryService = QueryHistoryStorageService();
   final _apiService = ConnectionApiService();
   final _authService = AuthService();
+  final _connectionBackupService = ConnectionBackupService();
 
   bool _loading = true;
   bool _connecting = false;
@@ -1443,6 +1446,20 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: _clearSavedConnections,
             ),
             _actionTile(
+              icon: Icons.file_upload_outlined,
+              title: 'Export connections',
+              subtitle: 'Share a JSON backup without passwords',
+              proOnly: true,
+              onTap: _exportConnections,
+            ),
+            _actionTile(
+              icon: Icons.file_download_outlined,
+              title: 'Import connections',
+              subtitle: 'Restore connections from a DBPilot JSON file',
+              proOnly: true,
+              onTap: _importConnections,
+            ),
+            _actionTile(
               icon: Icons.ios_share_rounded,
               title: 'Export settings',
               subtitle: 'Share a JSON backup of app preferences',
@@ -1944,13 +1961,38 @@ class _HomeScreenState extends State<HomeScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool proOnly = false,
   }) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, color: const Color(0xFF2D8CFF)),
       title: Text(title),
       subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: proOnly
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF173D32),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'PRO',
+                    style: TextStyle(
+                      color: Color(0xFF61D9A7),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            )
+          : const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
     );
   }
@@ -2040,6 +2082,116 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     _showInfo('Settings exported.');
+  }
+
+  Future<bool> _requireProFeature(ProFeature feature) async {
+    if (PlanAccessService.instance.canUse(feature)) return true;
+
+    final upgrade = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('DBPilot Pro'),
+        content: Text('${feature.title} is available with DBPilot Pro.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('View Pro'),
+          ),
+        ],
+      ),
+    );
+    if (upgrade == true) await _openPaywall();
+    return false;
+  }
+
+  Future<void> _exportConnections() async {
+    if (!await _requireProFeature(ProFeature.connectionBackup)) return;
+    if (_connections.isEmpty) {
+      _showInfo('There are no connections to export.');
+      return;
+    }
+
+    try {
+      final json = await _connectionBackupService.exportJson();
+      final directory = await getTemporaryDirectory();
+      final file = File(
+        '${directory.path}/dbpilot_connections_${_exportTimestamp()}.json',
+      );
+      await file.writeAsString(json, flush: true);
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'DBPilot connections backup (passwords are not included)',
+      );
+      _showInfo('${_connections.length} connections exported.');
+    } catch (error) {
+      _showInfo(
+        'Connections export failed: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
+  }
+
+  Future<void> _importConnections() async {
+    if (!await _requireProFeature(ProFeature.connectionBackup)) return;
+
+    try {
+      final selection = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      if (selection == null || selection.files.isEmpty) return;
+
+      final selectedFile = selection.files.single;
+      String source;
+      if (selectedFile.bytes != null) {
+        source = utf8.decode(selectedFile.bytes!);
+      } else if (selectedFile.path != null) {
+        source = await File(selectedFile.path!).readAsString();
+      } else {
+        throw const FormatException('The selected file could not be read.');
+      }
+      if (source.length > 2 * 1024 * 1024) {
+        throw const FormatException('The connections backup is too large.');
+      }
+
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Import connections?'),
+          content: const Text(
+            'Existing connections will not be overwritten. Duplicate names will be imported with a new name. Passwords must be entered again after import.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Import'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+
+      final result = await _connectionBackupService.importJson(source);
+      await _loadData();
+      _showInfo(
+        '${result.imported} connections imported'
+        '${result.renamed > 0 ? ', ${result.renamed} renamed' : ''}'
+        '${result.skipped > 0 ? ', ${result.skipped} skipped' : ''}.',
+      );
+    } catch (error) {
+      _showInfo(
+        'Connections import failed: ${error.toString().replaceFirst('FormatException: ', '').replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Future<void> _showImportSettingsDialog() async {

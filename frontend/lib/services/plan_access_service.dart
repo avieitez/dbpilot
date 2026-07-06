@@ -6,6 +6,7 @@ enum ProFeature {
   advancedSql,
   fullHistory,
   exportFormats,
+  connectionBackup,
 }
 
 extension ProFeatureX on ProFeature {
@@ -21,6 +22,8 @@ extension ProFeatureX on ProFeature {
         return 'Full query history';
       case ProFeature.exportFormats:
         return 'All export formats';
+      case ProFeature.connectionBackup:
+        return 'Connection import and export';
     }
   }
 }
