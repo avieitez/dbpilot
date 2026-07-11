@@ -2711,7 +2711,8 @@ class _PaywallScreen extends StatefulWidget {
 class _PaywallScreenState extends State<_PaywallScreen> {
   final _subscriptionService = SubscriptionService();
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
-  SubscriptionProduct? _product;
+  List<SubscriptionProduct> _products = const [];
+  SubscriptionProduct? _selectedProduct;
   String? _uid;
   bool _loadingProduct = true;
   bool _buying = false;
@@ -2741,12 +2742,13 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     });
 
     try {
-      final product = await _subscriptionService.loadProProduct();
+      final products = await _subscriptionService.loadProProducts();
       if (!mounted) return;
       setState(() {
-        _product = product;
+        _products = products;
+        _selectedProduct = products.isEmpty ? null : products.last;
         _loadingProduct = false;
-        _storeMessage = product == null
+        _storeMessage = products.isEmpty
             ? 'Pro subscription is not available yet. Check Google Play product setup.'
             : null;
       });
@@ -2760,7 +2762,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
   }
 
   Future<void> _buyPro() async {
-    final product = _product;
+    final product = _selectedProduct;
     if (product == null || _buying) return;
 
     setState(() {
@@ -2866,8 +2868,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final product = _product;
-    final priceLabel = product == null ? null : product.price;
+    final product = _selectedProduct;
 
     return Scaffold(
       backgroundColor: const Color(0xFF030817),
@@ -2915,7 +2916,18 @@ class _PaywallScreenState extends State<_PaywallScreen> {
                       ],
                     ),
                     const SizedBox(height: 22),
-                    _ProPrice(price: priceLabel, loading: _loadingProduct),
+                    _ProPlanSelector(
+                      products: _products,
+                      selectedProduct: _selectedProduct,
+                      loading: _loadingProduct,
+                      onSelected: _buying
+                          ? null
+                          : (selected) {
+                              setState(() {
+                                _selectedProduct = selected;
+                              });
+                            },
+                    ),
                   ],
                 ),
               ),
@@ -2930,7 +2942,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
                 ),
               _PaywallActions(
                 busy: _loadingProduct || _buying,
-                price: priceLabel,
+                product: product,
                 onUpgrade: _loadingProduct || _buying || product == null
                     ? null
                     : _buyPro,
@@ -3010,6 +3022,8 @@ class _ProBenefits extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selectedProduct = product;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -3084,11 +3098,18 @@ class _PlanFeatureRow extends StatelessWidget {
   }
 }
 
-class _ProPrice extends StatelessWidget {
-  const _ProPrice({required this.price, required this.loading});
+class _ProPlanSelector extends StatelessWidget {
+  const _ProPlanSelector({
+    required this.products,
+    required this.selectedProduct,
+    required this.loading,
+    required this.onSelected,
+  });
 
-  final String? price;
+  final List<SubscriptionProduct> products;
+  final SubscriptionProduct? selectedProduct;
   final bool loading;
+  final ValueChanged<SubscriptionProduct>? onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -3102,13 +3123,144 @@ class _ProPrice extends StatelessWidget {
       );
     }
 
-    return Text(
-      price == null ? 'Subscription price unavailable' : '$price / month',
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        color: price == null ? Colors.white60 : Colors.white,
-        fontSize: price == null ? 14 : 20,
-        fontWeight: FontWeight.w800,
+    if (products.isEmpty) {
+      return const Text(
+        'Subscription price unavailable',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white60,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final product in products) ...[
+          _ProPlanOption(
+            product: product,
+            selected: product.id == selectedProduct?.id,
+            onTap: onSelected == null ? null : () => onSelected!(product),
+          ),
+          if (product != products.last) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _ProPlanOption extends StatelessWidget {
+  const _ProPlanOption({
+    required this.product,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final SubscriptionProduct product;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final yearly = product.period == SubscriptionProductPeriod.yearly;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF0D2B4D) : const Color(0xFF0A1221),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF48A7FF)
+                  : Colors.white.withOpacity(0.14),
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_off_rounded,
+                color: selected ? const Color(0xFF9FC2FF) : Colors.white54,
+                size: 22,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          product.period.label,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (yearly) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF173F2F),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color:
+                                    const Color(0xFF41D69B).withOpacity(0.45),
+                              ),
+                            ),
+                            child: const Text(
+                              'BEST VALUE',
+                              style: TextStyle(
+                                color: Color(0xFF8DF0C1),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      product.description.isEmpty
+                          ? 'DBPilot Pro subscription'
+                          : product.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.62),
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '${product.price} / ${product.period.suffix}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3120,17 +3272,22 @@ class _PaywallActions extends StatelessWidget {
     required this.onRestore,
     required this.onContinue,
     required this.busy,
-    required this.price,
+    required this.product,
   });
 
   final VoidCallback? onUpgrade;
   final VoidCallback? onRestore;
   final VoidCallback onContinue;
   final bool busy;
-  final String? price;
+  final SubscriptionProduct? product;
 
   @override
   Widget build(BuildContext context) {
+    final selectedProduct = product;
+    final upgradeLabel = selectedProduct == null
+        ? 'Start DBPilot Pro'
+        : 'Start ${selectedProduct.period.label} Pro - ${selectedProduct.price}';
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
       decoration: BoxDecoration(
@@ -3165,9 +3322,7 @@ class _PaywallActions extends StatelessWidget {
                       )
                     : const Icon(Icons.workspace_premium_rounded),
                 label: Text(
-                  price == null
-                      ? 'Start DBPilot Pro'
-                      : 'Start DBPilot Pro - $price',
+                  upgradeLabel,
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.w900),
                 ),

@@ -19,6 +19,7 @@ from app.core.firebase_client import (
 ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 DEFAULT_PACKAGE_NAME = "com.avieitez.dbpilot"
 DEFAULT_PRODUCT_ID = "dbpilot_pro_monthly"
+DEFAULT_PRODUCT_IDS = ("dbpilot_pro_monthly", "dbpilot_pro_yearly")
 ENTITLED_STATES = {
     "SUBSCRIPTION_STATE_ACTIVE",
     "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
@@ -67,9 +68,8 @@ class GooglePlaySubscriptionService:
         self.package_name = os.getenv(
             "GOOGLE_PLAY_PACKAGE_NAME", DEFAULT_PACKAGE_NAME
         ).strip()
-        self.product_id = os.getenv(
-            "GOOGLE_PLAY_PRO_PRODUCT_ID", DEFAULT_PRODUCT_ID
-        ).strip()
+        self.product_ids = self._configured_product_ids()
+        self.product_id = self.product_ids[0]
 
     def verify_and_assign(
         self,
@@ -78,7 +78,7 @@ class GooglePlaySubscriptionService:
         product_id: str,
         purchase_token: str,
     ) -> SubscriptionEntitlement:
-        if product_id != self.product_id:
+        if product_id not in self.product_ids:
             raise SubscriptionVerificationError("Unknown subscription product.")
 
         payload = self._get_subscription(purchase_token)
@@ -104,7 +104,7 @@ class GooglePlaySubscriptionService:
         stored = snapshot.to_dict() or {}
         purchase_token = str(stored.get("purchaseToken", "")).strip()
         product_id = str(stored.get("productId", self.product_id)).strip()
-        if not purchase_token or product_id != self.product_id:
+        if not purchase_token or product_id not in self.product_ids:
             return SubscriptionEntitlement(False, None, product_id or None, None)
 
         try:
@@ -195,7 +195,7 @@ class GooglePlaySubscriptionService:
             token_hash
         )
         try:
-            token_ref.create({"uid": uid, "productId": self.product_id})
+            token_ref.create({"uid": uid, "productId": entitlement.product_id})
         except AlreadyExists:
             token_snapshot = token_ref.get()
             owner_uid = str((token_snapshot.to_dict() or {}).get("uid", ""))
@@ -241,6 +241,23 @@ class GooglePlaySubscriptionService:
     @staticmethod
     def _token_hash(purchase_token: str) -> str:
         return hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _configured_product_ids() -> tuple[str, ...]:
+        raw_ids = os.getenv("GOOGLE_PLAY_PRO_PRODUCT_IDS", "").strip()
+        if raw_ids:
+            product_ids = tuple(
+                product_id.strip()
+                for product_id in raw_ids.split(",")
+                if product_id.strip()
+            )
+            if product_ids:
+                return product_ids
+
+        legacy_product_id = os.getenv("GOOGLE_PLAY_PRO_PRODUCT_ID", "").strip()
+        if legacy_product_id:
+            return (legacy_product_id,)
+        return DEFAULT_PRODUCT_IDS
 
     @staticmethod
     def _parse_timestamp(value: str) -> datetime | None:

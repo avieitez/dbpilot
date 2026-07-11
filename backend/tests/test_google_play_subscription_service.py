@@ -49,6 +49,22 @@ class GooglePlaySubscriptionServiceTests(unittest.TestCase):
 
         self.assertTrue(entitlement.active)
 
+    def test_yearly_subscription_grants_pro(self):
+        yearly_product_id = "dbpilot_pro_yearly"
+        payload = self._payload(
+            "SUBSCRIPTION_STATE_ACTIVE",
+            datetime.now(timezone.utc) + timedelta(days=365),
+            product_id=yearly_product_id,
+        )
+
+        entitlement = self.service._entitlement_from_payload(
+            payload,
+            yearly_product_id,
+        )
+
+        self.assertTrue(entitlement.active)
+        self.assertEqual(entitlement.product_id, yearly_product_id)
+
     def test_expired_subscription_is_free(self):
         payload = self._payload(
             "SUBSCRIPTION_STATE_EXPIRED",

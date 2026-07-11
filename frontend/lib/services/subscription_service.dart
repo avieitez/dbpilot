@@ -13,12 +13,39 @@ class SubscriptionProduct {
     required this.title,
     required this.description,
     required this.price,
+    required this.period,
   });
 
   final String id;
   final String title;
   final String description;
   final String price;
+  final SubscriptionProductPeriod period;
+}
+
+enum SubscriptionProductPeriod {
+  monthly,
+  yearly,
+}
+
+extension SubscriptionProductPeriodLabel on SubscriptionProductPeriod {
+  String get label {
+    switch (this) {
+      case SubscriptionProductPeriod.monthly:
+        return 'Monthly';
+      case SubscriptionProductPeriod.yearly:
+        return 'Yearly';
+    }
+  }
+
+  String get suffix {
+    switch (this) {
+      case SubscriptionProductPeriod.monthly:
+        return 'month';
+      case SubscriptionProductPeriod.yearly:
+        return 'year';
+    }
+  }
 }
 
 class SubscriptionPurchaseResult {
@@ -36,6 +63,11 @@ class SubscriptionPurchaseResult {
 class SubscriptionService {
   static const String _apiBaseUrl = 'https://dbpilot-5g16.onrender.com';
   static const String proMonthlyProductId = 'dbpilot_pro_monthly';
+  static const String proYearlyProductId = 'dbpilot_pro_yearly';
+  static const Set<String> proProductIds = {
+    proMonthlyProductId,
+    proYearlyProductId,
+  };
 
   SubscriptionService({InAppPurchase? inAppPurchase})
       : _inAppPurchase = inAppPurchase ?? InAppPurchase.instance;
@@ -47,22 +79,35 @@ class SubscriptionService {
 
   Future<bool> isStoreAvailable() => _inAppPurchase.isAvailable();
 
-  Future<SubscriptionProduct?> loadProProduct() async {
+  Future<List<SubscriptionProduct>> loadProProducts() async {
     final available = await isStoreAvailable();
-    if (!available) return null;
+    if (!available) return const [];
 
     final response = await _inAppPurchase.queryProductDetails(
-      const {proMonthlyProductId},
+      proProductIds,
     );
 
-    if (response.productDetails.isEmpty) return null;
-    final product = response.productDetails.first;
-    return SubscriptionProduct(
-      id: product.id,
-      title: product.title,
-      description: product.description,
-      price: product.price,
-    );
+    if (response.productDetails.isEmpty) return const [];
+    final products = response.productDetails
+        .where((product) => proProductIds.contains(product.id))
+        .map(
+          (product) => SubscriptionProduct(
+            id: product.id,
+            title: product.title,
+            description: product.description,
+            price: product.price,
+            period: _periodForProduct(product.id),
+          ),
+        )
+        .toList()
+      ..sort((a, b) => a.period.index.compareTo(b.period.index));
+    return products;
+  }
+
+  Future<SubscriptionProduct?> loadProProduct() async {
+    final products = await loadProProducts();
+    if (products.isEmpty) return null;
+    return products.first;
   }
 
   Future<void> buyPro(SubscriptionProduct product,
@@ -85,7 +130,7 @@ class SubscriptionService {
     required String uid,
     required PurchaseDetails purchase,
   }) async {
-    if (purchase.productID != proMonthlyProductId) return null;
+    if (!proProductIds.contains(purchase.productID)) return null;
 
     if (purchase.status == PurchaseStatus.error) {
       return SubscriptionPurchaseResult(
@@ -162,5 +207,11 @@ class SubscriptionService {
     } catch (_) {
       return SubscriptionPlan.free;
     }
+  }
+
+  static SubscriptionProductPeriod _periodForProduct(String productId) {
+    return productId == proYearlyProductId
+        ? SubscriptionProductPeriod.yearly
+        : SubscriptionProductPeriod.monthly;
   }
 }

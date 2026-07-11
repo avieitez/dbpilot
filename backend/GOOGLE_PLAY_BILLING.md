@@ -5,8 +5,9 @@ service-account JSON file to this repository.
 
 ## 1. Google Play Console
 
-1. Create a subscription with product ID `dbpilot_pro_monthly`.
-2. Add and activate its monthly base plan.
+1. Create subscriptions with product IDs `dbpilot_pro_monthly` and
+   `dbpilot_pro_yearly`.
+2. Add and activate their monthly and yearly base plans.
 3. Upload a signed AAB using package name `com.avieitez.dbpilot` to an internal
    testing track.
 4. Add the test Google accounts as license testers and internal testers.
@@ -36,7 +37,7 @@ Configure the variables shown in `.env.example`:
 - `FIREBASE_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_PLAY_PACKAGE_NAME`
-- `GOOGLE_PLAY_PRO_PRODUCT_ID`
+- `GOOGLE_PLAY_PRO_PRODUCT_IDS`
 
 The two JSON variables may contain the same service account when that account
 has both Firebase and Play permissions. Preserve escaped `\n` characters in
