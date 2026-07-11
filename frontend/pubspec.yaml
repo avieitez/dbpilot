@@ -1,5 +1,5 @@
 name: dbpilot
-version: 0.1.0+1
+version: 0.1.0+2
 description: Mobile database utility for SQL Server, Oracle and PostgreSQL
 publish_to: 'none'
 
