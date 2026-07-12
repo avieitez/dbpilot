@@ -1590,11 +1590,19 @@ class _HomeScreenState extends State<HomeScreen> {
       _showInfo('Signed in. UID: ${session.uid}');
     } catch (error) {
       if (!mounted) return;
-      _showInfo(
-          'Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}');
+      _showInfo('Google sign-in failed: ${_friendlySignInError(error)}');
     } finally {
       if (mounted) setState(() => _authLoading = false);
     }
+  }
+
+  String _friendlySignInError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('GoogleSignInExceptionCode.canceled') ||
+        message.contains('Account reauth failed')) {
+      return 'Google sign-in was cancelled or could not reauthenticate this account. Try again or select another Google account.';
+    }
+    return message;
   }
 
   Future<void> _signOut() async {
@@ -1925,7 +1933,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (error) {
       if (mounted) {
         _showInfo(
-          'Google sign-in failed: ${error.toString().replaceFirst('Exception: ', '')}',
+          'Google sign-in failed: ${_friendlySignInError(error)}',
         );
       }
       return null;

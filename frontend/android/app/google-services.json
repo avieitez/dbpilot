@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "100510560960-f13a90nb19rktqrtbh20o2lc3ktds38v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.avieitez.dbpilot",
+            "certificate_hash": "03fcbc9a05a4094e2709f129a34d968d22634082"
+          }
+        },
+        {
           "client_id": "100510560960-iqhr0e1e51l86p829po90q4f20oif5m1.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

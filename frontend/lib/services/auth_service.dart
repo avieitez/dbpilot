@@ -67,7 +67,6 @@ class AuthService {
   Future<AppUserSession?> signInWithGoogle() async {
     await _ensureGoogleInitialized();
 
-    await _googleSignIn.signOut();
     final googleUser = await _googleSignIn.authenticate();
     final googleAuth = googleUser.authentication;
     final credential = GoogleAuthProvider.credential(

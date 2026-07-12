@@ -137,11 +137,20 @@ class _StartupGateState extends State<_StartupGate>
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _signInError = error.toString().replaceFirst('Exception: ', '');
+        _signInError = _friendlySignInError(error);
       });
     } finally {
       if (mounted) setState(() => _signingIn = false);
     }
+  }
+
+  String _friendlySignInError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('GoogleSignInExceptionCode.canceled') ||
+        message.contains('Account reauth failed')) {
+      return 'Google sign-in was cancelled or could not reauthenticate this account. Try again or select another Google account.';
+    }
+    return message;
   }
 
   void _handleSignedOut() {
