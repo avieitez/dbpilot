@@ -7,7 +7,9 @@ service-account JSON file to this repository.
 
 1. Create subscriptions with product IDs `dbpilot_pro_monthly` and
    `dbpilot_pro_yearly`.
-2. Add and activate their monthly and yearly base plans.
+2. Add and activate their base plans:
+   - `dbpilot_pro_monthly`: 3,99 € / month.
+   - `dbpilot_pro_yearly`: 39,99 € / year.
 3. Upload a signed AAB using package name `com.avieitez.dbpilot` to an internal
    testing track.
 4. Add the test Google accounts as license testers and internal testers.

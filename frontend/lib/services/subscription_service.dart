@@ -13,6 +13,7 @@ class SubscriptionProduct {
     required this.title,
     required this.description,
     required this.price,
+    required this.displayPrice,
     required this.period,
   });
 
@@ -20,6 +21,7 @@ class SubscriptionProduct {
   final String title;
   final String description;
   final String price;
+  final String displayPrice;
   final SubscriptionProductPeriod period;
 }
 
@@ -96,6 +98,7 @@ class SubscriptionService {
             title: product.title,
             description: product.description,
             price: product.price,
+            displayPrice: _displayPriceForProduct(product.id),
             period: _periodForProduct(product.id),
           ),
         )
@@ -213,5 +216,9 @@ class SubscriptionService {
     return productId == proYearlyProductId
         ? SubscriptionProductPeriod.yearly
         : SubscriptionProductPeriod.monthly;
+  }
+
+  static String _displayPriceForProduct(String productId) {
+    return productId == proYearlyProductId ? '39,99 €' : '3,99 €';
   }
 }

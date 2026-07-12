@@ -3257,7 +3257,7 @@ class _ProPlanOption extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                '${product.price} / ${product.period.suffix}',
+                '${product.displayPrice} / ${product.period.suffix}',
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 15,
@@ -3292,7 +3292,7 @@ class _PaywallActions extends StatelessWidget {
     final selectedProduct = product;
     final upgradeLabel = selectedProduct == null
         ? 'Start DBPilot Pro'
-        : 'Start ${selectedProduct.period.label} Pro - ${selectedProduct.price}';
+        : 'Start ${selectedProduct.period.label} Pro - ${selectedProduct.displayPrice}';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
