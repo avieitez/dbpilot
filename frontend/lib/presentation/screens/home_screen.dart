@@ -3022,8 +3022,6 @@ class _ProBenefits extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedProduct = product;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
