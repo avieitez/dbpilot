@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from app.services.google_play_subscription_service import (
     GooglePlaySubscriptionService,
@@ -91,6 +92,50 @@ class GooglePlaySubscriptionServiceTests(unittest.TestCase):
                 payload,
                 self.service.product_id,
             )
+
+    def test_review_access_grants_pro_for_allowed_uid(self):
+        uid = "review-user-uid"
+        self.service.review_access_uids = {uid}
+        expiry = datetime.now(timezone.utc) + timedelta(days=365)
+
+        entitlement = self.service._review_access_entitlement(
+            uid,
+            {
+                "reviewAccess": True,
+                "productId": "dbpilot_pro_yearly",
+                "state": "REVIEW_ACCESS_ACTIVE",
+                "expiryTime": expiry.isoformat().replace("+00:00", "Z"),
+            },
+        )
+
+        self.assertIsNotNone(entitlement)
+        self.assertTrue(entitlement.active)
+        self.assertEqual(entitlement.plan, "pro")
+        self.assertEqual(entitlement.product_id, "dbpilot_pro_yearly")
+
+    def test_review_access_is_ignored_for_unlisted_uid(self):
+        self.service.review_access_uids = {"review-user-uid"}
+        expiry = datetime.now(timezone.utc) + timedelta(days=365)
+
+        entitlement = self.service._review_access_entitlement(
+            "different-user-uid",
+            {
+                "reviewAccess": True,
+                "productId": "dbpilot_pro_yearly",
+                "expiryTime": expiry.isoformat().replace("+00:00", "Z"),
+            },
+        )
+
+        self.assertIsNone(entitlement)
+
+    def test_review_access_uids_are_loaded_from_environment(self):
+        with patch.dict(
+            "os.environ",
+            {"GOOGLE_PLAY_REVIEW_ACCESS_UIDS": "uid-a, uid-b"},
+        ):
+            service = GooglePlaySubscriptionService()
+
+        self.assertEqual(service.review_access_uids, {"uid-a", "uid-b"})
 
 
 if __name__ == "__main__":

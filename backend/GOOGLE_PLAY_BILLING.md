@@ -40,12 +40,51 @@ Configure the variables shown in `.env.example`:
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_PLAY_PACKAGE_NAME`
 - `GOOGLE_PLAY_PRO_PRODUCT_IDS`
+- `GOOGLE_PLAY_REVIEW_ACCESS_UIDS`
 
 The two JSON variables may contain the same service account when that account
 has both Firebase and Play permissions. Preserve escaped `\n` characters in
 the private key.
 
-## 5. End-to-end test
+## 5. Google Play review access
+
+For the Google Play review account, the backend can grant a controlled Pro
+entitlement without a real purchase token.
+
+1. Add the reviewer Firebase UID to Render:
+
+   ```text
+   GOOGLE_PLAY_REVIEW_ACCESS_UIDS=<reviewer-firebase-uid>
+   ```
+
+   Multiple UIDs can be comma-separated.
+
+2. Create or update this Firestore document:
+
+   ```text
+   users/{uid}/subscriptions/google_play
+   ```
+
+   Example:
+
+   ```json
+   {
+     "reviewAccess": true,
+     "productId": "dbpilot_pro_yearly",
+     "state": "REVIEW_ACCESS_ACTIVE",
+     "active": true,
+     "expiryTime": "2099-12-31T23:59:59Z",
+     "latestOrderId": "review-access",
+     "updatedAt": "2026-07-13T00:00:00Z",
+     "source": "manual_review_access"
+   }
+   ```
+
+The backend returns Pro only when both conditions are true: the UID is listed in
+`GOOGLE_PLAY_REVIEW_ACCESS_UIDS` and the Firestore document has
+`reviewAccess: true`.
+
+## 6. End-to-end test
 
 1. Deploy the backend.
 2. Install DBPilot from the internal Play testing track. Sideloaded debug APKs

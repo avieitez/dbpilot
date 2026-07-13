@@ -70,6 +70,7 @@ class GooglePlaySubscriptionService:
         ).strip()
         self.product_ids = self._configured_product_ids()
         self.product_id = self.product_ids[0]
+        self.review_access_uids = self._configured_review_access_uids()
 
     def verify_and_assign(
         self,
@@ -102,6 +103,10 @@ class GooglePlaySubscriptionService:
             return SubscriptionEntitlement(False, None, None, None)
 
         stored = snapshot.to_dict() or {}
+        review_entitlement = self._review_access_entitlement(uid, stored)
+        if review_entitlement is not None:
+            return review_entitlement
+
         purchase_token = str(stored.get("purchaseToken", "")).strip()
         product_id = str(stored.get("productId", self.product_id)).strip()
         if not purchase_token or product_id not in self.product_ids:
@@ -238,6 +243,38 @@ class GooglePlaySubscriptionService:
             "updatedAt": datetime.now(timezone.utc).isoformat(),
         }
 
+    def _review_access_entitlement(
+        self,
+        uid: str,
+        stored: dict,
+    ) -> SubscriptionEntitlement | None:
+        if uid not in self.review_access_uids:
+            return None
+        if stored.get("reviewAccess") is not True:
+            return None
+
+        product_id = str(stored.get("productId", self.product_id)).strip()
+        if product_id not in self.product_ids:
+            return None
+
+        expiry_time = str(stored.get("expiryTime", "")).strip()
+        expiry = self._parse_timestamp(expiry_time)
+        if expiry is None or expiry <= datetime.now(timezone.utc):
+            return SubscriptionEntitlement(
+                False,
+                "REVIEW_ACCESS_EXPIRED",
+                product_id,
+                expiry_time or None,
+            )
+
+        state = str(stored.get("state", "REVIEW_ACCESS_ACTIVE")).strip()
+        return SubscriptionEntitlement(
+            active=True,
+            state=state or "REVIEW_ACCESS_ACTIVE",
+            product_id=product_id,
+            expiry_time=expiry_time,
+        )
+
     @staticmethod
     def _token_hash(purchase_token: str) -> str:
         return hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
@@ -258,6 +295,13 @@ class GooglePlaySubscriptionService:
         if legacy_product_id:
             return (legacy_product_id,)
         return DEFAULT_PRODUCT_IDS
+
+    @staticmethod
+    def _configured_review_access_uids() -> set[str]:
+        raw_uids = os.getenv("GOOGLE_PLAY_REVIEW_ACCESS_UIDS", "").strip()
+        if not raw_uids:
+            return set()
+        return {uid.strip() for uid in raw_uids.split(",") if uid.strip()}
 
     @staticmethod
     def _parse_timestamp(value: str) -> datetime | None:
