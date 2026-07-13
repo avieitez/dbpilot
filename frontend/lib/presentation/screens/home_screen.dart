@@ -1477,6 +1477,13 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: 'Clear active session and temporary editor state',
               onTap: _clearLocalCache,
             ),
+            _actionTile(
+              icon: Icons.delete_forever_rounded,
+              title: 'Delete account',
+              subtitle: 'Delete your account and all associated DBPilot data',
+              destructive: true,
+              onTap: _deleteAccount,
+            ),
           ],
         ),
         _settingsSection(
@@ -1970,11 +1977,17 @@ class _HomeScreenState extends State<HomeScreen> {
     required String subtitle,
     required VoidCallback onTap,
     bool proOnly = false,
+    bool destructive = false,
   }) {
+    final accentColor =
+        destructive ? const Color(0xFFFF8A8A) : const Color(0xFF2D8CFF);
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: const Color(0xFF2D8CFF)),
-      title: Text(title),
+      leading: Icon(icon, color: accentColor),
+      title: Text(
+        title,
+        style: destructive ? TextStyle(color: accentColor) : null,
+      ),
       subtitle: Text(subtitle),
       trailing: proOnly
           ? Row(
@@ -2357,6 +2370,56 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     await _loadData();
     _showInfo('Local cache cleared.');
+  }
+
+  Future<void> _deleteAccount() async {
+    final session = _authSession;
+    if (session == null) {
+      _showInfo('Sign in to delete your account.');
+      return;
+    }
+
+    final confirmed = await _confirmSettingsAction(
+      title: 'Delete account?',
+      message:
+          'This permanently deletes your DBPilot account, subscription record, saved connections, stored passwords, query history and account preferences. This action cannot be undone.',
+    );
+    if (!confirmed) return;
+
+    setState(() => _authLoading = true);
+    try {
+      await _authService.deleteAccount();
+      await _storageService.clearAllConnections();
+      await _queryHistoryService.clearHistory();
+      await _clearAccountPreferences(session.uid);
+      QueryEditorScreen.clearSessionCache();
+      PlanAccessService.instance.updateSession(null);
+
+      if (!mounted) return;
+      setState(() {
+        _authSession = null;
+        _connections = [];
+        _queries = [];
+        _activeConnectionId = null;
+        _activeConnection = null;
+        _expandedConnectionProvider = null;
+        _expandedQueryProvider = null;
+        _expandedQueryConnectionKey = null;
+      });
+      widget.onSignedOut();
+    } catch (error) {
+      if (!mounted) return;
+      _showInfo(
+        'Account deletion failed: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _authLoading = false);
+    }
+  }
+
+  Future<void> _clearAccountPreferences(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('onboarding.paywallShown.$uid');
   }
 
   String _exportTimestamp() {

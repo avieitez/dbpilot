@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers.account import router as account_router
 from app.routers.connections import router as connections_router
 from app.routers.db_explorer import router as db_explorer_router
 from app.routers.subscriptions import router as subscriptions_router
@@ -25,6 +26,7 @@ def health():
 app.include_router(connections_router)
 app.include_router(db_explorer_router)
 app.include_router(subscriptions_router)
+app.include_router(account_router)
 
 @app.get("/")
 def root():

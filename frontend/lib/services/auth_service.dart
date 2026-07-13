@@ -86,6 +86,29 @@ class AuthService {
     await _firebaseAuth.signOut();
   }
 
+  Future<void> deleteAccount() async {
+    await _ensureGoogleInitialized();
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return;
+
+    final idToken = await user.getIdToken(true);
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('A valid session is required to delete the account.');
+    }
+
+    final response = await http.delete(
+      Uri.parse('$_apiBaseUrl/api/v1/account'),
+      headers: {'Authorization': 'Bearer $idToken'},
+    ).timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) {
+      throw Exception('Account deletion failed.');
+    }
+
+    await _googleSignIn.signOut();
+    await _firebaseAuth.signOut();
+  }
+
   Future<AppUserSession> _sessionFromUser(User user) async {
     final plan = await checkPlayStoreSubscription(user.uid);
     return AppUserSession(
