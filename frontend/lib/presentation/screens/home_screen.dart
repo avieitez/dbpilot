@@ -2387,6 +2387,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!confirmed) return;
 
     setState(() => _authLoading = true);
+    _showBlockingProgress('Deleting account...');
     try {
       await _authService.deleteAccount();
       await _storageService.clearAllConnections();
@@ -2406,9 +2407,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _expandedQueryProvider = null;
         _expandedQueryConnectionKey = null;
       });
+      _hideBlockingProgress();
       _returnToSignInAfterAccountDeletion();
     } catch (error) {
       if (!mounted) return;
+      _hideBlockingProgress();
       _showInfo(
         'Account deletion failed: ${error.toString().replaceFirst('Exception: ', '')}',
       );
@@ -2420,6 +2423,36 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _clearAccountPreferences(String uid) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('onboarding.paywallShown.$uid');
+  }
+
+  void _showBlockingProgress(String message) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _hideBlockingProgress() {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   void _returnToSignInAfterAccountDeletion() {

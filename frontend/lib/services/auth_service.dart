@@ -108,7 +108,11 @@ class AuthService {
       ));
     }
 
-    await _googleSignIn.signOut();
+    try {
+      await _googleSignIn.disconnect();
+    } catch (_) {
+      await _googleSignIn.signOut();
+    }
     await _firebaseAuth.signOut();
   }
 
