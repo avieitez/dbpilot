@@ -158,6 +158,17 @@ class GooglePlaySubscriptionServiceTests(unittest.TestCase):
 
         self.assertIsNone(entitlement)
 
+    def test_review_access_email_accepts_google_provider(self):
+        entitlement = self.service._email_review_access_entitlement(
+            uid="review-uid",
+            email="dbpilot.review@gmail.com",
+            email_verified=False,
+            sign_in_provider="google.com",
+        )
+
+        self.assertIsNotNone(entitlement)
+        self.assertTrue(entitlement.active)
+
     def test_review_access_emails_are_loaded_from_environment(self):
         with patch.dict(
             "os.environ",

@@ -98,7 +98,18 @@ class GooglePlaySubscriptionService:
         *,
         email: str | None = None,
         email_verified: bool = False,
+        sign_in_provider: str | None = None,
     ) -> SubscriptionEntitlement:
+        email_review_entitlement = self._email_review_access_entitlement(
+            uid=uid,
+            email=email,
+            email_verified=email_verified,
+            sign_in_provider=sign_in_provider,
+        )
+        if email_review_entitlement is not None:
+            self._store_review_access(uid, email_review_entitlement)
+            return email_review_entitlement
+
         firestore_client = get_firestore_client()
         subscription_ref = (
             firestore_client.collection("users")
@@ -106,18 +117,6 @@ class GooglePlaySubscriptionService:
             .collection("subscriptions")
             .document("google_play")
         )
-        email_review_entitlement = self._email_review_access_entitlement(
-            uid=uid,
-            email=email,
-            email_verified=email_verified,
-        )
-        if email_review_entitlement is not None:
-            subscription_ref.set(
-                self._review_access_record(email_review_entitlement),
-                merge=True,
-            )
-            return email_review_entitlement
-
         snapshot = subscription_ref.get()
         if not snapshot.exists:
             return SubscriptionEntitlement(False, None, None, None)
@@ -301,9 +300,11 @@ class GooglePlaySubscriptionService:
         uid: str,
         email: str | None,
         email_verified: bool,
+        sign_in_provider: str | None = None,
     ) -> SubscriptionEntitlement | None:
         normalized_email = (email or "").strip().lower()
-        if not uid.strip() or not email_verified:
+        is_google_account = (sign_in_provider or "").strip() == "google.com"
+        if not uid.strip() or not (email_verified or is_google_account):
             return None
         if normalized_email not in self.review_access_emails:
             return None
@@ -314,6 +315,28 @@ class GooglePlaySubscriptionService:
             product_id="dbpilot_pro_yearly",
             expiry_time="2099-12-31T23:59:59Z",
         )
+
+    def _store_review_access(
+        self,
+        uid: str,
+        entitlement: SubscriptionEntitlement,
+    ) -> None:
+        try:
+            firestore_client = get_firestore_client()
+            subscription_ref = (
+                firestore_client.collection("users")
+                .document(uid)
+                .collection("subscriptions")
+                .document("google_play")
+            )
+            subscription_ref.set(
+                self._review_access_record(entitlement),
+                merge=True,
+            )
+        except Exception:
+            # Review access must not fail open for normal users because the
+            # entitlement is already restricted by verified Google identity.
+            pass
 
     @staticmethod
     def _review_access_record(entitlement: SubscriptionEntitlement) -> dict:

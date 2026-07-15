@@ -15,6 +15,7 @@ class AuthenticatedUser:
     uid: str
     email: str | None
     email_verified: bool
+    sign_in_provider: str | None
 
 
 def authenticated_user(
@@ -45,10 +46,15 @@ def authenticated_user(
         )
     email = str(decoded_token.get("email", "")).strip().lower() or None
     email_verified = bool(decoded_token.get("email_verified", False))
+    firebase_claims = decoded_token.get("firebase") or {}
+    sign_in_provider = str(
+        firebase_claims.get("sign_in_provider", "")
+    ).strip() or None
     return AuthenticatedUser(
         uid=uid,
         email=email,
         email_verified=email_verified,
+        sign_in_provider=sign_in_provider,
     )
 
 

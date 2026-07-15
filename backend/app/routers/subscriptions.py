@@ -34,6 +34,7 @@ def subscription_status(user: AuthenticatedUser = Depends(authenticated_user)):
                 user.uid,
                 email=user.email,
                 email_verified=user.email_verified,
+                sign_in_provider=user.sign_in_provider,
             )
         )
     except SubscriptionVerificationError as exc:

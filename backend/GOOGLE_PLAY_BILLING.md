@@ -58,8 +58,9 @@ The default review email is:
 dbpilot.review@gmail.com
 ```
 
-If that Firebase user's email is verified, `GET /api/v1/subscriptions/me`
-returns Pro and writes/updates the review subscription document in Firestore.
+If that Firebase user's email is verified or was authenticated by Google,
+`GET /api/v1/subscriptions/me` returns Pro and writes/updates the review
+subscription document in Firestore.
 
 1. Add the reviewer Firebase UID to Render:
 
@@ -99,8 +100,10 @@ returns Pro and writes/updates the review subscription document in Firestore.
 The backend returns Pro only when both conditions are true: the UID is listed in
 `GOOGLE_PLAY_REVIEW_ACCESS_UIDS` and the Firestore document has
 `reviewAccess: true`. For the configured review email allowlist, the backend
-requires a verified Firebase email and creates/updates the Firestore document
-automatically.
+requires a verified Firebase email or Google sign-in provider and
+creates/updates the Firestore document automatically. If Firestore is
+temporarily unavailable, the email allowlist still returns Pro for the review
+account.
 
 ## 6. End-to-end test
 
