@@ -104,7 +104,7 @@ class AuthService {
     if (response.statusCode != 200) {
       throw Exception(_errorMessageFromResponse(
         response.body,
-        fallback: 'Account deletion failed.',
+        fallback: 'Account deletion failed (${response.statusCode}).',
       ));
     }
 

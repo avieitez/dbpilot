@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 @router.delete("")
 def delete_account(uid: str = Depends(authenticated_uid)):
     try:
-        _delete_user_firestore_data(uid)
+        warnings = _delete_user_firestore_data(uid)
     except Exception as exc:
         logger.exception("Failed to delete Firestore account data for uid=%s", uid)
         raise HTTPException(
@@ -33,24 +33,31 @@ def delete_account(uid: str = Depends(authenticated_uid)):
             detail="Could not delete Firebase Authentication user.",
         ) from exc
 
-    return {"deleted": True}
+    return {"deleted": True, "warnings": warnings}
 
 
-def _delete_user_firestore_data(uid: str) -> None:
+def _delete_user_firestore_data(uid: str) -> list[str]:
     firestore_client = get_firestore_client()
     user_ref = firestore_client.collection("users").document(uid)
+    warnings: list[str] = []
 
     for collection_ref in user_ref.collections():
         _delete_collection(collection_ref)
     user_ref.delete()
 
-    token_docs = (
-        firestore_client.collection("play_purchase_tokens")
-        .where("uid", "==", uid)
-        .stream()
-    )
-    for token_doc in token_docs:
-        token_doc.reference.delete()
+    try:
+        token_docs = (
+            firestore_client.collection("play_purchase_tokens")
+            .where("uid", "==", uid)
+            .stream()
+        )
+        for token_doc in token_docs:
+            token_doc.reference.delete()
+    except Exception:
+        logger.exception("Failed to delete purchase token references for uid=%s", uid)
+        warnings.append("Purchase token references could not be fully removed.")
+
+    return warnings
 
 
 def _delete_collection(collection_ref, batch_size: int = 100) -> None:
