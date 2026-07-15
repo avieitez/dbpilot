@@ -102,11 +102,30 @@ class AuthService {
     ).timeout(const Duration(seconds: 20));
 
     if (response.statusCode != 200) {
-      throw Exception('Account deletion failed.');
+      throw Exception(_errorMessageFromResponse(
+        response.body,
+        fallback: 'Account deletion failed.',
+      ));
     }
 
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
+  }
+
+  String _errorMessageFromResponse(
+    String body, {
+    required String fallback,
+  }) {
+    try {
+      final payload = jsonDecode(body);
+      if (payload is Map<String, dynamic>) {
+        final detail = payload['detail']?.toString().trim();
+        if (detail != null && detail.isNotEmpty) return detail;
+      }
+    } catch (_) {
+      // Keep the original fallback when the backend does not return JSON.
+    }
+    return fallback;
   }
 
   Future<AppUserSession> _sessionFromUser(User user) async {

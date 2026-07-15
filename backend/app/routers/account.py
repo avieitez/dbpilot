@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from firebase_admin import auth
 
@@ -6,19 +8,29 @@ from app.core.firebase_client import get_firebase_app, get_firestore_client
 
 
 router = APIRouter(prefix="/api/v1/account", tags=["account"])
+logger = logging.getLogger(__name__)
 
 
 @router.delete("")
 def delete_account(uid: str = Depends(authenticated_uid)):
     try:
         _delete_user_firestore_data(uid)
-        auth.delete_user(uid, app=get_firebase_app())
-    except auth.UserNotFoundError:
-        return {"deleted": True}
     except Exception as exc:
+        logger.exception("Failed to delete Firestore account data for uid=%s", uid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Account deletion failed.",
+            detail="Could not delete account data.",
+        ) from exc
+
+    try:
+        auth.delete_user(uid, app=get_firebase_app())
+    except Exception as exc:
+        if exc.__class__.__name__ == "UserNotFoundError":
+            return {"deleted": True}
+        logger.exception("Failed to delete Firebase Auth user uid=%s", uid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not delete Firebase Authentication user.",
         ) from exc
 
     return {"deleted": True}
