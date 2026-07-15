@@ -13,14 +13,7 @@ logger = logging.getLogger(__name__)
 
 @router.delete("")
 def delete_account(uid: str = Depends(authenticated_uid)):
-    try:
-        warnings = _delete_user_firestore_data(uid)
-    except Exception as exc:
-        logger.exception("Failed to delete Firestore account data for uid=%s", uid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not delete account data.",
-        ) from exc
+    warnings = _delete_user_firestore_data(uid)
 
     try:
         auth.delete_user(uid, app=get_firebase_app())
@@ -37,13 +30,23 @@ def delete_account(uid: str = Depends(authenticated_uid)):
 
 
 def _delete_user_firestore_data(uid: str) -> list[str]:
-    firestore_client = get_firestore_client()
-    user_ref = firestore_client.collection("users").document(uid)
     warnings: list[str] = []
 
-    for collection_ref in user_ref.collections():
-        _delete_collection(collection_ref)
-    user_ref.delete()
+    try:
+        firestore_client = get_firestore_client()
+    except Exception:
+        logger.exception("Failed to initialize Firestore for uid=%s", uid)
+        return ["Firestore client could not be initialized."]
+
+    user_ref = firestore_client.collection("users").document(uid)
+
+    try:
+        for collection_ref in user_ref.collections():
+            _delete_collection(collection_ref)
+        user_ref.delete()
+    except Exception:
+        logger.exception("Failed to delete Firestore user document for uid=%s", uid)
+        warnings.append("Firestore user document could not be fully removed.")
 
     try:
         token_docs = (

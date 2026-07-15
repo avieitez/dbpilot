@@ -2406,7 +2406,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _expandedQueryProvider = null;
         _expandedQueryConnectionKey = null;
       });
-      widget.onSignedOut();
+      _returnToSignInAfterAccountDeletion();
     } catch (error) {
       if (!mounted) return;
       _showInfo(
@@ -2420,6 +2420,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _clearAccountPreferences(String uid) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('onboarding.paywallShown.$uid');
+  }
+
+  void _returnToSignInAfterAccountDeletion() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    widget.onSignedOut();
   }
 
   String _exportTimestamp() {
