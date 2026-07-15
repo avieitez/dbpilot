@@ -20,6 +20,7 @@ ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 DEFAULT_PACKAGE_NAME = "com.avieitez.dbpilot"
 DEFAULT_PRODUCT_ID = "dbpilot_pro_monthly"
 DEFAULT_PRODUCT_IDS = ("dbpilot_pro_monthly", "dbpilot_pro_yearly")
+DEFAULT_REVIEW_ACCESS_EMAILS = ("dbpilot.review@gmail.com",)
 ENTITLED_STATES = {
     "SUBSCRIPTION_STATE_ACTIVE",
     "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
@@ -71,6 +72,7 @@ class GooglePlaySubscriptionService:
         self.product_ids = self._configured_product_ids()
         self.product_id = self.product_ids[0]
         self.review_access_uids = self._configured_review_access_uids()
+        self.review_access_emails = self._configured_review_access_emails()
 
     def verify_and_assign(
         self,
@@ -90,7 +92,13 @@ class GooglePlaySubscriptionService:
             self._assign_token(uid, purchase_token, payload, entitlement)
         return entitlement
 
-    def status_for_user(self, uid: str) -> SubscriptionEntitlement:
+    def status_for_user(
+        self,
+        uid: str,
+        *,
+        email: str | None = None,
+        email_verified: bool = False,
+    ) -> SubscriptionEntitlement:
         firestore_client = get_firestore_client()
         subscription_ref = (
             firestore_client.collection("users")
@@ -98,6 +106,18 @@ class GooglePlaySubscriptionService:
             .collection("subscriptions")
             .document("google_play")
         )
+        email_review_entitlement = self._email_review_access_entitlement(
+            uid=uid,
+            email=email,
+            email_verified=email_verified,
+        )
+        if email_review_entitlement is not None:
+            subscription_ref.set(
+                self._review_access_record(email_review_entitlement),
+                merge=True,
+            )
+            return email_review_entitlement
+
         snapshot = subscription_ref.get()
         if not snapshot.exists:
             return SubscriptionEntitlement(False, None, None, None)
@@ -275,6 +295,39 @@ class GooglePlaySubscriptionService:
             expiry_time=expiry_time,
         )
 
+    def _email_review_access_entitlement(
+        self,
+        *,
+        uid: str,
+        email: str | None,
+        email_verified: bool,
+    ) -> SubscriptionEntitlement | None:
+        normalized_email = (email or "").strip().lower()
+        if not uid.strip() or not email_verified:
+            return None
+        if normalized_email not in self.review_access_emails:
+            return None
+
+        return SubscriptionEntitlement(
+            active=True,
+            state="REVIEW_ACCESS_ACTIVE",
+            product_id="dbpilot_pro_yearly",
+            expiry_time="2099-12-31T23:59:59Z",
+        )
+
+    @staticmethod
+    def _review_access_record(entitlement: SubscriptionEntitlement) -> dict:
+        return {
+            "reviewAccess": True,
+            "productId": entitlement.product_id,
+            "state": entitlement.state,
+            "active": entitlement.active,
+            "expiryTime": entitlement.expiry_time,
+            "latestOrderId": "review-access",
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "source": "google_play_review_email",
+        }
+
     @staticmethod
     def _token_hash(purchase_token: str) -> str:
         return hashlib.sha256(purchase_token.encode("utf-8")).hexdigest()
@@ -302,6 +355,17 @@ class GooglePlaySubscriptionService:
         if not raw_uids:
             return set()
         return {uid.strip() for uid in raw_uids.split(",") if uid.strip()}
+
+    @staticmethod
+    def _configured_review_access_emails() -> set[str]:
+        raw_emails = os.getenv("GOOGLE_PLAY_REVIEW_ACCESS_EMAILS", "").strip()
+        if not raw_emails:
+            return set(DEFAULT_REVIEW_ACCESS_EMAILS)
+        return {
+            email.strip().lower()
+            for email in raw_emails.split(",")
+            if email.strip()
+        }
 
     @staticmethod
     def _parse_timestamp(value: str) -> datetime | None:

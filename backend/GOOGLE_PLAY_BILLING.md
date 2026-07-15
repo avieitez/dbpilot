@@ -41,6 +41,7 @@ Configure the variables shown in `.env.example`:
 - `GOOGLE_PLAY_PACKAGE_NAME`
 - `GOOGLE_PLAY_PRO_PRODUCT_IDS`
 - `GOOGLE_PLAY_REVIEW_ACCESS_UIDS`
+- `GOOGLE_PLAY_REVIEW_ACCESS_EMAILS`
 
 The two JSON variables may contain the same service account when that account
 has both Firebase and Play permissions. Preserve escaped `\n` characters in
@@ -51,6 +52,15 @@ the private key.
 For the Google Play review account, the backend can grant a controlled Pro
 entitlement without a real purchase token.
 
+The default review email is:
+
+```text
+dbpilot.review@gmail.com
+```
+
+If that Firebase user's email is verified, `GET /api/v1/subscriptions/me`
+returns Pro and writes/updates the review subscription document in Firestore.
+
 1. Add the reviewer Firebase UID to Render:
 
    ```text
@@ -58,6 +68,12 @@ entitlement without a real purchase token.
    ```
 
    Multiple UIDs can be comma-separated.
+
+   Alternatively, configure the reviewer email allowlist:
+
+   ```text
+   GOOGLE_PLAY_REVIEW_ACCESS_EMAILS=dbpilot.review@gmail.com
+   ```
 
 2. Create or update this Firestore document:
 
@@ -82,7 +98,9 @@ entitlement without a real purchase token.
 
 The backend returns Pro only when both conditions are true: the UID is listed in
 `GOOGLE_PLAY_REVIEW_ACCESS_UIDS` and the Firestore document has
-`reviewAccess: true`.
+`reviewAccess: true`. For the configured review email allowlist, the backend
+requires a verified Firebase email and creates/updates the Firestore document
+automatically.
 
 ## 6. End-to-end test
 

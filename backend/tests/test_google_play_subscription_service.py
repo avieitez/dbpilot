@@ -137,6 +137,36 @@ class GooglePlaySubscriptionServiceTests(unittest.TestCase):
 
         self.assertEqual(service.review_access_uids, {"uid-a", "uid-b"})
 
+    def test_review_access_email_grants_pro_when_verified(self):
+        entitlement = self.service._email_review_access_entitlement(
+            uid="review-uid",
+            email="dbpilot.review@gmail.com",
+            email_verified=True,
+        )
+
+        self.assertIsNotNone(entitlement)
+        self.assertTrue(entitlement.active)
+        self.assertEqual(entitlement.plan, "pro")
+        self.assertEqual(entitlement.product_id, "dbpilot_pro_yearly")
+
+    def test_review_access_email_is_ignored_when_unverified(self):
+        entitlement = self.service._email_review_access_entitlement(
+            uid="review-uid",
+            email="dbpilot.review@gmail.com",
+            email_verified=False,
+        )
+
+        self.assertIsNone(entitlement)
+
+    def test_review_access_emails_are_loaded_from_environment(self):
+        with patch.dict(
+            "os.environ",
+            {"GOOGLE_PLAY_REVIEW_ACCESS_EMAILS": "review@example.com"},
+        ):
+            service = GooglePlaySubscriptionService()
+
+        self.assertEqual(service.review_access_emails, {"review@example.com"})
+
 
 if __name__ == "__main__":
     unittest.main()

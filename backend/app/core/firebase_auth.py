@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth
@@ -8,9 +10,16 @@ from app.core.firebase_client import get_firebase_app
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def authenticated_uid(
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    uid: str
+    email: str | None
+    email_verified: bool
+
+
+def authenticated_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> str:
+) -> AuthenticatedUser:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -34,4 +43,14 @@ def authenticated_uid(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Firebase token does not contain a UID.",
         )
-    return uid
+    email = str(decoded_token.get("email", "")).strip().lower() or None
+    email_verified = bool(decoded_token.get("email_verified", False))
+    return AuthenticatedUser(
+        uid=uid,
+        email=email,
+        email_verified=email_verified,
+    )
+
+
+def authenticated_uid(user: AuthenticatedUser = Depends(authenticated_user)) -> str:
+    return user.uid

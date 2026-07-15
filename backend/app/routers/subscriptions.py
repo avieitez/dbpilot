@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.firebase_auth import authenticated_uid
+from app.core.firebase_auth import AuthenticatedUser, authenticated_uid, authenticated_user
 from app.schemas.subscriptions import (
     GooglePlayVerificationRequest,
     SubscriptionStatusResponse,
@@ -27,9 +27,15 @@ def _response(entitlement) -> SubscriptionStatusResponse:
 
 
 @router.get("/me", response_model=SubscriptionStatusResponse)
-def subscription_status(uid: str = Depends(authenticated_uid)):
+def subscription_status(user: AuthenticatedUser = Depends(authenticated_user)):
     try:
-        return _response(service.status_for_user(uid))
+        return _response(
+            service.status_for_user(
+                user.uid,
+                email=user.email,
+                email_verified=user.email_verified,
+            )
+        )
     except SubscriptionVerificationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
