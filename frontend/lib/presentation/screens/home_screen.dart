@@ -2890,6 +2890,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         return;
       }
       await _subscriptionService.buyPro(product, uid: uid);
+      unawaited(_resetPurchaseStateIfNoStoreUpdate());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2897,6 +2898,15 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         _storeMessage = 'Could not start purchase: $error';
       });
     }
+  }
+
+  Future<void> _resetPurchaseStateIfNoStoreUpdate() async {
+    await Future<void>.delayed(const Duration(seconds: 45));
+    if (!mounted || !_buying) return;
+    setState(() {
+      _buying = false;
+      _storeMessage = 'Purchase was not completed. Try again when ready.';
+    });
   }
 
   Future<void> _restorePurchases() async {
@@ -3358,7 +3368,7 @@ class _ProPlanOption extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                '${product.displayPrice} / ${product.period.suffix}',
+                '${product.price} / ${product.period.suffix}',
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 15,
@@ -3393,7 +3403,7 @@ class _PaywallActions extends StatelessWidget {
     final selectedProduct = product;
     final upgradeLabel = selectedProduct == null
         ? 'Start DBPilot Pro'
-        : 'Start ${selectedProduct.period.label} Pro - ${selectedProduct.displayPrice}';
+        : 'Start ${selectedProduct.period.label} Pro - ${selectedProduct.price}';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
