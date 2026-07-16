@@ -131,6 +131,53 @@ class SubscriptionService {
 
   Future<void> restorePurchases() => _inAppPurchase.restorePurchases();
 
+  Future<SubscriptionPurchaseResult?> restoreAndVerifyPurchases({
+    required String uid,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (uid.trim().isEmpty) return null;
+
+    final available = await isStoreAvailable();
+    if (!available) return null;
+
+    SubscriptionPurchaseResult? lastResult;
+    final completer = Completer<SubscriptionPurchaseResult?>();
+    late final StreamSubscription<List<PurchaseDetails>> subscription;
+
+    subscription = purchaseStream.listen(
+      (purchases) async {
+        for (final purchase in purchases) {
+          if (!proProductIds.contains(purchase.productID)) continue;
+
+          final result = await handlePurchaseUpdate(
+            uid: uid,
+            purchase: purchase,
+          );
+          if (result == null) continue;
+
+          lastResult = result;
+          if (result.plan == SubscriptionPlan.pro && !completer.isCompleted) {
+            completer.complete(result);
+            return;
+          }
+        }
+      },
+      onError: (_) {
+        if (!completer.isCompleted) completer.complete(lastResult);
+      },
+    );
+
+    try {
+      await restorePurchases();
+      return await completer.future.timeout(
+        timeout,
+        onTimeout: () => lastResult,
+      );
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
   Future<SubscriptionPurchaseResult?> handlePurchaseUpdate({
     required String uid,
     required PurchaseDetails purchase,

@@ -76,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _apiService = ConnectionApiService();
   final _authService = AuthService();
   final _connectionBackupService = ConnectionBackupService();
+  final _subscriptionService = SubscriptionService();
 
   bool _loading = true;
   bool _connecting = false;
@@ -115,8 +116,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final connections = await _storageService.getSavedConnections();
     final queries = await _queryHistoryService.getQueries();
     final activeId = await _storageService.getActiveConnectionId();
-    final authSession =
+    final initialAuthSession =
         await _authService.currentSession() ?? widget.initialSession;
+    final authSession = await _sessionWithRestoredPurchase(initialAuthSession);
     final prefs = await SharedPreferences.getInstance();
 
     Map<String, dynamic>? active;
@@ -1637,7 +1639,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _authLoading = true);
     try {
-      final session = await _authService.currentSession();
+      var session = await _authService.currentSession();
+      if (session != null) {
+        session = await _sessionWithRestoredPurchase(session);
+      }
       if (!mounted) return;
       setState(() => _authSession = session);
       PlanAccessService.instance.updateSession(session);
@@ -1651,6 +1656,27 @@ class _HomeScreenState extends State<HomeScreen> {
     } finally {
       if (mounted) setState(() => _authLoading = false);
     }
+  }
+
+  Future<AppUserSession> _sessionWithRestoredPurchase(
+    AppUserSession session,
+  ) async {
+    if (session.plan == SubscriptionPlan.pro) return session;
+
+    final restored = await _subscriptionService.restoreAndVerifyPurchases(
+      uid: session.uid,
+    );
+    if (restored?.plan != SubscriptionPlan.pro) return session;
+
+    return await _authService.currentSession() ??
+        AppUserSession(
+          uid: session.uid,
+          email: session.email,
+          displayName: session.displayName,
+          photoUrl: session.photoUrl,
+          emailVerified: session.emailVerified,
+          plan: SubscriptionPlan.pro,
+        );
   }
 
   Widget _planTile() {

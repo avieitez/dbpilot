@@ -10,6 +10,7 @@ import 'firebase_options.dart';
 import 'presentation/screens/home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/plan_access_service.dart';
+import 'services/subscription_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +52,7 @@ class _StartupGate extends StatefulWidget {
 class _StartupGateState extends State<_StartupGate>
     with SingleTickerProviderStateMixin {
   final _authService = AuthService();
+  final _subscriptionService = SubscriptionService();
   late final AnimationController _dotsController;
   AppUserSession? _session;
   bool _ready = false;
@@ -77,6 +79,15 @@ class _StartupGateState extends State<_StartupGate>
         await _authService.signOut();
         session = null;
       }
+      if (session != null && session.plan == SubscriptionPlan.free) {
+        final restored = await _subscriptionService.restoreAndVerifyPurchases(
+          uid: session.uid,
+        );
+        if (restored?.plan == SubscriptionPlan.pro) {
+          session = await _authService.currentSession() ??
+              _sessionWithPlan(session, SubscriptionPlan.pro);
+        }
+      }
     } catch (_) {
       session = null;
     }
@@ -102,6 +113,20 @@ class _StartupGateState extends State<_StartupGate>
     if (session == null || session.plan == SubscriptionPlan.pro) return false;
     final prefs = await SharedPreferences.getInstance();
     return !(prefs.getBool('onboarding.paywallShown.${session.uid}') ?? false);
+  }
+
+  AppUserSession _sessionWithPlan(
+    AppUserSession session,
+    SubscriptionPlan plan,
+  ) {
+    return AppUserSession(
+      uid: session.uid,
+      email: session.email,
+      displayName: session.displayName,
+      photoUrl: session.photoUrl,
+      emailVerified: session.emailVerified,
+      plan: plan,
+    );
   }
 
   Future<void> _signIn() async {
