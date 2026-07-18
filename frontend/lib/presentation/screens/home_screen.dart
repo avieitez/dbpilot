@@ -2851,6 +2851,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
   String? _uid;
   bool _loadingProduct = true;
   bool _buying = false;
+  int _purchaseAttempt = 0;
   String? _storeMessage;
 
   @override
@@ -2900,6 +2901,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     final product = _selectedProduct;
     if (product == null || _buying) return;
 
+    final attempt = ++_purchaseAttempt;
     setState(() {
       _buying = true;
       _storeMessage = null;
@@ -2916,7 +2918,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         return;
       }
       await _subscriptionService.buyPro(product, uid: uid);
-      unawaited(_resetPurchaseStateIfNoStoreUpdate());
+      unawaited(_resetPurchaseStateIfNoStoreUpdate(attempt));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2926,12 +2928,12 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     }
   }
 
-  Future<void> _resetPurchaseStateIfNoStoreUpdate() async {
-    await Future<void>.delayed(const Duration(seconds: 45));
-    if (!mounted || !_buying) return;
+  Future<void> _resetPurchaseStateIfNoStoreUpdate(int attempt) async {
+    await Future<void>.delayed(const Duration(seconds: 10));
+    if (!mounted || !_buying || attempt != _purchaseAttempt) return;
     setState(() {
       _buying = false;
-      _storeMessage = 'Purchase was not completed. Try again when ready.';
+      _storeMessage = 'Purchase cancelled or not completed. Try again when ready.';
     });
   }
 
