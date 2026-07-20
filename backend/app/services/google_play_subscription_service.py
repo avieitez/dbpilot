@@ -173,6 +173,19 @@ class GooglePlaySubscriptionService:
         matching_items = [
             item for item in line_items if item.get("productId") == expected_product_id
         ]
+        entitlement_product_id = expected_product_id
+
+        if not matching_items:
+            matching_items = [
+                item
+                for item in line_items
+                if str(item.get("productId", "")).strip() in self.product_ids
+            ]
+            if matching_items:
+                entitlement_product_id = str(
+                    matching_items[0].get("productId", "")
+                ).strip()
+
         if not matching_items:
             raise SubscriptionVerificationError(
                 "Purchase token does not contain the expected product."
@@ -192,7 +205,7 @@ class GooglePlaySubscriptionService:
         return SubscriptionEntitlement(
             active=active,
             state=state,
-            product_id=expected_product_id,
+            product_id=entitlement_product_id,
             expiry_time=expiry_time or None,
         )
 

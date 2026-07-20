@@ -93,6 +93,22 @@ class GooglePlaySubscriptionServiceTests(unittest.TestCase):
                 self.service.product_id,
             )
 
+    def test_other_configured_product_in_token_grants_pro(self):
+        yearly_product_id = "dbpilot_pro_yearly"
+        payload = self._payload(
+            "SUBSCRIPTION_STATE_ACTIVE",
+            datetime.now(timezone.utc) + timedelta(days=365),
+            product_id=yearly_product_id,
+        )
+
+        entitlement = self.service._entitlement_from_payload(
+            payload,
+            self.service.product_id,
+        )
+
+        self.assertTrue(entitlement.active)
+        self.assertEqual(entitlement.product_id, yearly_product_id)
+
     def test_review_access_grants_pro_for_allowed_uid(self):
         uid = "review-user-uid"
         self.service.review_access_uids = {uid}

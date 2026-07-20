@@ -2945,7 +2945,7 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         return;
       }
       await _subscriptionService.buyPro(product, uid: uid);
-      unawaited(_resetPurchaseStateIfNoStoreUpdate(attempt));
+      unawaited(_resetPurchaseStateIfNoStoreUpdate(attempt, uid));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2955,12 +2955,33 @@ class _PaywallScreenState extends State<_PaywallScreen> {
     }
   }
 
-  Future<void> _resetPurchaseStateIfNoStoreUpdate(int attempt) async {
+  Future<void> _resetPurchaseStateIfNoStoreUpdate(
+    int attempt,
+    String uid,
+  ) async {
     await Future<void>.delayed(const Duration(seconds: 10));
     if (!mounted || !_buying || attempt != _purchaseAttempt) return;
+
+    final result = await _subscriptionService.restoreAndVerifyPurchases(
+      uid: uid,
+      timeout: const Duration(seconds: 8),
+    );
+    if (!mounted || !_buying || attempt != _purchaseAttempt) return;
+
+    if (result?.plan == SubscriptionPlan.pro) {
+      setState(() {
+        _buying = false;
+        _storeMessage = result!.message;
+      });
+      Navigator.of(context).pop(true);
+      return;
+    }
+
     setState(() {
       _buying = false;
-      _storeMessage = 'Purchase cancelled or not completed. Try again when ready.';
+      _storeMessage =
+          result?.message ??
+              'Purchase cancelled or not completed. Try again when ready.';
     });
   }
 
