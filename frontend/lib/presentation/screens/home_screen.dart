@@ -1728,7 +1728,11 @@ class _HomeScreenState extends State<HomeScreen> {
             child: FilledButton.icon(
               onPressed: _openPaywall,
               icon: const Icon(Icons.workspace_premium_rounded),
-              label: const Text('Upgrade to Pro'),
+              label: Text(
+                currentPlan == SubscriptionPlan.pro
+                    ? 'Manage subscription'
+                    : 'Upgrade to Pro',
+              ),
             ),
           ),
         ],
@@ -1942,7 +1946,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openPaywall() async {
     final session = _authSession;
     if (session?.plan == SubscriptionPlan.pro) {
-      _showInfo('Your DBPilot Pro subscription is already active.');
+      await _openGooglePlaySubscriptions();
       return;
     }
 
@@ -1958,6 +1962,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (upgraded == true) {
       await _refreshSubscriptionPlan();
     }
+  }
+
+  Future<void> _openGooglePlaySubscriptions() async {
+    final uri = Uri.parse(
+      'https://play.google.com/store/account/subscriptions'
+      '?package=com.avieitez.dbpilot',
+    );
+
+    try {
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened || !mounted) return;
+    } catch (_) {
+      if (!mounted) return;
+    }
+
+    _showInfo('Could not open Google Play subscriptions.');
   }
 
   Future<String?> _signInForPurchase() async {
