@@ -1941,6 +1941,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openPaywall() async {
     final session = _authSession;
+    if (session?.plan == SubscriptionPlan.pro) {
+      _showInfo('Your DBPilot Pro subscription is already active.');
+      return;
+    }
 
     final upgraded = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
@@ -2955,7 +2959,18 @@ class _PaywallScreenState extends State<_PaywallScreen> {
         });
         return;
       }
-      await _subscriptionService.restorePurchases();
+      final result = await _subscriptionService.restoreAndVerifyPurchases(
+        uid: uid,
+      );
+      if (!mounted) return;
+      setState(() {
+        _buying = false;
+        _storeMessage =
+            result?.message ?? 'No active DBPilot Pro subscription was found.';
+      });
+      if (result?.plan == SubscriptionPlan.pro) {
+        Navigator.of(context).pop(true);
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -3478,7 +3493,7 @@ class _PaywallActions extends StatelessWidget {
           TextButton.icon(
             onPressed: onRestore,
             icon: const Icon(Icons.restore_rounded, size: 18),
-            label: const Text('Restore purchases'),
+            label: const Text('Sync existing subscription'),
           ),
           const SizedBox(height: 8),
           SizedBox(

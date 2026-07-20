@@ -357,20 +357,22 @@ class GooglePlaySubscriptionService:
 
     @staticmethod
     def _configured_product_ids() -> tuple[str, ...]:
+        product_ids: list[str] = []
+
         raw_ids = os.getenv("GOOGLE_PLAY_PRO_PRODUCT_IDS", "").strip()
         if raw_ids:
-            product_ids = tuple(
+            product_ids.extend(
                 product_id.strip()
                 for product_id in raw_ids.split(",")
                 if product_id.strip()
             )
-            if product_ids:
-                return product_ids
 
         legacy_product_id = os.getenv("GOOGLE_PLAY_PRO_PRODUCT_ID", "").strip()
         if legacy_product_id:
-            return (legacy_product_id,)
-        return DEFAULT_PRODUCT_IDS
+            product_ids.append(legacy_product_id)
+
+        product_ids.extend(DEFAULT_PRODUCT_IDS)
+        return tuple(dict.fromkeys(product_ids))
 
     @staticmethod
     def _configured_review_access_uids() -> set[str]:

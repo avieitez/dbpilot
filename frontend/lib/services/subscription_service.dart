@@ -209,11 +209,20 @@ class SubscriptionService {
     final verification = purchase.verificationData;
     final purchaseToken = verification.serverVerificationData;
 
-    final plan = await verifyPlayStoreSubscription(
-      uid: uid,
-      productId: purchase.productID,
-      purchaseToken: purchaseToken,
-    );
+    final SubscriptionPlan plan;
+    try {
+      plan = await verifyPlayStoreSubscription(
+        uid: uid,
+        productId: purchase.productID,
+        purchaseToken: purchaseToken,
+      );
+    } catch (error) {
+      return SubscriptionPurchaseResult(
+        plan: SubscriptionPlan.free,
+        purchaseToken: purchaseToken,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
 
     if (purchase.pendingCompletePurchase) {
       await _inAppPurchase.completePurchase(purchase);
@@ -260,15 +269,38 @@ class SubscriptionService {
             }),
           )
           .timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) return SubscriptionPlan.free;
+      if (response.statusCode != 200) {
+        throw Exception(_errorMessageFromResponse(
+          response.body,
+          fallback:
+              'Backend rejected the purchase (${response.statusCode}).',
+        ));
+      }
 
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       return payload['plan']?.toString().toLowerCase() == 'pro'
           ? SubscriptionPlan.pro
           : SubscriptionPlan.free;
-    } catch (_) {
-      return SubscriptionPlan.free;
+    } catch (error) {
+      if (error is Exception) rethrow;
+      throw Exception('Could not verify the purchase with the backend.');
     }
+  }
+
+  static String _errorMessageFromResponse(
+    String body, {
+    required String fallback,
+  }) {
+    try {
+      final payload = jsonDecode(body);
+      if (payload is Map<String, dynamic>) {
+        final detail = payload['detail']?.toString().trim();
+        if (detail != null && detail.isNotEmpty) return detail;
+      }
+    } catch (_) {
+      // Keep fallback when the backend response is not JSON.
+    }
+    return fallback;
   }
 
   static SubscriptionProductPeriod _periodForProduct(String productId) {
