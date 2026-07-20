@@ -6,7 +6,7 @@ from functools import lru_cache
 from urllib.parse import quote
 
 import google.auth
-from google.api_core.exceptions import AlreadyExists
+from google.api_core.exceptions import AlreadyExists, PermissionDenied
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
@@ -117,7 +117,13 @@ class GooglePlaySubscriptionService:
             .collection("subscriptions")
             .document("google_play")
         )
-        snapshot = subscription_ref.get()
+        try:
+            snapshot = subscription_ref.get()
+        except PermissionDenied as exc:
+            raise SubscriptionVerificationError(
+                "Firestore permission denied. Check FIREBASE_SERVICE_ACCOUNT_JSON permissions."
+            ) from exc
+
         if not snapshot.exists:
             return SubscriptionEntitlement(False, None, None, None)
 
@@ -137,10 +143,15 @@ class GooglePlaySubscriptionService:
         except SubscriptionVerificationError:
             return SubscriptionEntitlement(False, None, product_id, None)
 
-        subscription_ref.set(
-            self._subscription_record(purchase_token, payload, entitlement),
-            merge=True,
-        )
+        try:
+            subscription_ref.set(
+                self._subscription_record(purchase_token, payload, entitlement),
+                merge=True,
+            )
+        except PermissionDenied as exc:
+            raise SubscriptionVerificationError(
+                "Firestore permission denied. Check FIREBASE_SERVICE_ACCOUNT_JSON permissions."
+            ) from exc
         return entitlement
 
     def _get_subscription(self, purchase_token: str) -> dict:
@@ -240,6 +251,10 @@ class GooglePlaySubscriptionService:
                 raise PurchaseTokenAlreadyClaimedError(
                     "Purchase is already linked to another DBPilot account."
                 )
+        except PermissionDenied as exc:
+            raise SubscriptionVerificationError(
+                "Firestore permission denied. Check FIREBASE_SERVICE_ACCOUNT_JSON permissions."
+            ) from exc
 
         subscription_ref = (
             firestore_client.collection("users")
@@ -247,9 +262,14 @@ class GooglePlaySubscriptionService:
             .collection("subscriptions")
             .document("google_play")
         )
-        subscription_ref.set(
-            self._subscription_record(purchase_token, payload, entitlement)
-        )
+        try:
+            subscription_ref.set(
+                self._subscription_record(purchase_token, payload, entitlement)
+            )
+        except PermissionDenied as exc:
+            raise SubscriptionVerificationError(
+                "Firestore permission denied. Check FIREBASE_SERVICE_ACCOUNT_JSON permissions."
+            ) from exc
 
         linked_token = str(payload.get("linkedPurchaseToken", "")).strip()
         if linked_token:
