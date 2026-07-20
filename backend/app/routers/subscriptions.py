@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.firebase_auth import AuthenticatedUser, authenticated_uid, authenticated_user
@@ -14,6 +16,7 @@ from app.services.google_play_subscription_service import (
 
 router = APIRouter(prefix="/api/v1/subscriptions", tags=["subscriptions"])
 service = GooglePlaySubscriptionService()
+logger = logging.getLogger(__name__)
 
 
 def _response(entitlement) -> SubscriptionStatusResponse:
@@ -61,8 +64,20 @@ def verify_google_play_purchase(
             )
         )
     except PurchaseTokenAlreadyClaimedError as exc:
+        logger.warning(
+            "Google Play purchase token already claimed. uid=%s product_id=%s detail=%s",
+            uid,
+            payload.product_id,
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except SubscriptionVerificationError as exc:
+        logger.warning(
+            "Google Play purchase verification failed. uid=%s product_id=%s detail=%s",
+            uid,
+            payload.product_id,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

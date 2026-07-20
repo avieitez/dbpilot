@@ -82,7 +82,10 @@ class GooglePlaySubscriptionService:
         purchase_token: str,
     ) -> SubscriptionEntitlement:
         if product_id not in self.product_ids:
-            raise SubscriptionVerificationError("Unknown subscription product.")
+            configured = ", ".join(self.product_ids)
+            raise SubscriptionVerificationError(
+                f"Unknown subscription product '{product_id}'. Configured products: {configured}."
+            )
 
         payload = self._get_subscription(purchase_token)
         entitlement = self._entitlement_from_payload(payload, product_id)
@@ -170,8 +173,10 @@ class GooglePlaySubscriptionService:
             ) from exc
 
         if response.status_code != 200:
+            response_detail = response.text[:500].replace("\n", " ").strip()
             raise SubscriptionVerificationError(
-                f"Google Play rejected the purchase token ({response.status_code})."
+                "Google Play rejected the purchase token "
+                f"({response.status_code}). Detail: {response_detail}"
             )
         return response.json()
 
@@ -198,8 +203,16 @@ class GooglePlaySubscriptionService:
                 ).strip()
 
         if not matching_items:
+            token_products = [
+                str(item.get("productId", "")).strip()
+                for item in line_items
+                if str(item.get("productId", "")).strip()
+            ]
+            configured = ", ".join(self.product_ids)
             raise SubscriptionVerificationError(
-                "Purchase token does not contain the expected product."
+                "Purchase token does not contain a configured PRO product. "
+                f"Expected '{expected_product_id}' or one of [{configured}]. "
+                f"Token products: {token_products}."
             )
 
         expiry_time = max(
