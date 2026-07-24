@@ -129,6 +129,16 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    final defaultSafeModeSetting =
+        prefs.getBool('settings.defaultSafeMode') ?? true;
+    final defaultSafeMode =
+        authSession.plan == SubscriptionPlan.pro ? defaultSafeModeSetting : true;
+    if (defaultSafeMode != defaultSafeModeSetting) {
+      await prefs.setBool('settings.defaultSafeMode', defaultSafeMode);
+    }
+
+    PlanAccessService.instance.updateSession(authSession);
+
     if (!mounted) return;
 
     setState(() {
@@ -138,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _activeConnection = active;
       _authSession = authSession;
       _avatarIndex = prefs.getInt('settings.avatar.${authSession.uid}') ?? 0;
-      _defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
+      _defaultSafeMode = defaultSafeMode;
       _confirmDangerousQueries =
           prefs.getBool('settings.confirmDangerousQueries') ?? true;
       _showLineNumbers = prefs.getBool('settings.showLineNumbers') ?? true;
@@ -154,7 +164,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = false;
     });
 
-    PlanAccessService.instance.updateSession(authSession);
     if (widget.showInitialPaywall && !_initialPaywallHandled) {
       _initialPaywallHandled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -266,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Map<String, dynamic>? initialData,
     bool duplicate = false,
   }) async {
-    await Navigator.of(context).push(
+    final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ConnectionScreen(
           initialData: initialData,
@@ -276,7 +285,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (!mounted) return;
+    if (!mounted || saved != true) return;
+    setState(() => _loading = true);
     await _loadData();
   }
 
@@ -1295,10 +1305,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _defaultSafeMode,
-              onChanged: (value) => _updateBoolSetting(
-                  'settings.defaultSafeMode',
-                  value,
-                  (v) => _defaultSafeMode = v),
+              onChanged: _updateDefaultSafeModeSetting,
               title: const Text('Safe Mode by default'),
               subtitle: const Text('Block non-SELECT queries by default.'),
             ),
@@ -2077,6 +2084,16 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setBool(key, value);
     if (!mounted) return;
     setState(() => assign(value));
+  }
+
+  Future<void> _updateDefaultSafeModeSetting(bool value) async {
+    if (!value && !await _requireProFeature(ProFeature.advancedSql)) return;
+
+    await _updateBoolSetting(
+      'settings.defaultSafeMode',
+      value,
+      (v) => _defaultSafeMode = v,
+    );
   }
 
   Future<void> _updateIntSetting(

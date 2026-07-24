@@ -153,10 +153,18 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
 
   Future<void> _loadEditorSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final defaultSafeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
+    final effectiveSafeMode =
+        PlanAccessService.instance.canUse(ProFeature.advancedSql)
+            ? defaultSafeMode
+            : true;
+    if (effectiveSafeMode != defaultSafeMode) {
+      await prefs.setBool('settings.defaultSafeMode', effectiveSafeMode);
+    }
     if (!mounted) return;
 
     setState(() {
-      _safeMode = prefs.getBool('settings.defaultSafeMode') ?? true;
+      _safeMode = effectiveSafeMode;
       _timeoutSeconds = prefs.getInt('settings.defaultTimeout') ?? 30;
       _limit = prefs.getInt('settings.defaultLimit') ?? 100;
       _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
