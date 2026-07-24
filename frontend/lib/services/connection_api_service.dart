@@ -1,4 +1,6 @@
 import 'dart:convert';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import '../models/connection_request.dart';
 
@@ -280,7 +282,7 @@ class ConnectionApiService {
 
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode(request.toJson()),
     );
 
@@ -308,7 +310,7 @@ class ConnectionApiService {
 
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
         'connection': request.toJson(),
         'objectName': objectName,
@@ -339,7 +341,7 @@ class ConnectionApiService {
 
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
         'connection': request.toJson(),
         'objectName': objectName,
@@ -360,10 +362,10 @@ class ConnectionApiService {
     return QueryExecuteResult.fromJson(_decode(response));
   }
 
-  Future<http.Response> _post(Uri uri, Map<String, dynamic> body) {
+  Future<http.Response> _post(Uri uri, Map<String, dynamic> body) async {
     return _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode(body),
     );
   }
@@ -389,7 +391,7 @@ class ConnectionApiService {
 
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
         'connection': request.toJson(),
         'sql': sql,
@@ -420,7 +422,7 @@ class ConnectionApiService {
     final uri = Uri.parse('$_baseUrl/api/v1/object-definition');
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
         'connection': request.toJson(),
         'objectName': objectName,
@@ -445,7 +447,7 @@ class ConnectionApiService {
     final uri = Uri.parse('$_baseUrl/api/v1/object-parameters');
     final response = await _client.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _authHeaders(),
       body: jsonEncode({
         'connection': request.toJson(),
         'objectName': objectName,
@@ -463,5 +465,20 @@ class ConnectionApiService {
 
   void dispose() {
     _client.close();
+  }
+
+  Future<Map<String, String>> _authHeaders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw Exception('A valid DBPilot session is required.');
+    }
+    final idToken = await user.getIdToken(true);
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('A valid DBPilot session is required.');
+    }
+    return {
+      'Authorization': 'Bearer $idToken',
+      'Content-Type': 'application/json',
+    };
   }
 }

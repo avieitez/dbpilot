@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import Any
 
+from app.core.firebase_auth import AuthenticatedUser, authenticated_user
 from app.schemas.connections import (
     ConnectionTestRequest,
     DbObjectListResponse,
@@ -15,9 +16,14 @@ from app.schemas.connections import (
     ObjectParametersRequest,
 )
 from app.services.db_explorer_service import DbExplorerError, DbExplorerService
+from app.services.google_play_subscription_service import (
+    GooglePlaySubscriptionService,
+    SubscriptionVerificationError,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["db_explorer"])
 service = DbExplorerService()
+subscription_service = GooglePlaySubscriptionService()
 
 class QueryExecuteRequest(BaseModel):
     connection: ConnectionTestRequest
@@ -33,7 +39,11 @@ class QueryExecuteResponse(BaseModel):
     message: str
 
 @router.post("/objects", response_model=DbObjectListResponse)
-def get_objects(payload: ConnectionTestRequest):
+def get_objects(
+    payload: ConnectionTestRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
+    _ = user
     try:
         return service.get_objects(payload)
     except DbExplorerError as exc:
@@ -42,7 +52,11 @@ def get_objects(payload: ConnectionTestRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/object-structure", response_model=DbObjectStructureResponse)
-def get_object_structure(payload: ObjectStructureRequest):
+def get_object_structure(
+    payload: ObjectStructureRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
+    _ = user
     try:
         return service.get_object_structure(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
     except DbExplorerError as exc:
@@ -51,7 +65,11 @@ def get_object_structure(payload: ObjectStructureRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/object-preview", response_model=DbObjectPreviewResponse)
-def get_object_preview(payload: ObjectPreviewRequest):
+def get_object_preview(
+    payload: ObjectPreviewRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
+    _ = user
     try:
         return service.get_object_preview(payload.connection, payload.objectName, payload.objectType, payload.limit, payload.schemaName)
     except DbExplorerError as exc:
@@ -60,7 +78,11 @@ def get_object_preview(payload: ObjectPreviewRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/object-definition", response_model=DbObjectDefinitionResponse)
-def get_object_definition(payload: ObjectDefinitionRequest):
+def get_object_definition(
+    payload: ObjectDefinitionRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
+    _ = user
     try:
         return service.get_object_definition(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
     except DbExplorerError as exc:
@@ -69,7 +91,11 @@ def get_object_definition(payload: ObjectDefinitionRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/object-parameters", response_model=DbObjectParametersResponse)
-def get_object_parameters(payload: ObjectParametersRequest):
+def get_object_parameters(
+    payload: ObjectParametersRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
+    _ = user
     try:
         return service.get_object_parameters(payload.connection, payload.objectName, payload.objectType, payload.schemaName)
     except DbExplorerError as exc:
@@ -78,8 +104,16 @@ def get_object_parameters(payload: ObjectParametersRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/execute-query", response_model=QueryExecuteResponse)
-def execute_query(payload: QueryExecuteRequest):
+def execute_query(
+    payload: QueryExecuteRequest,
+    user: AuthenticatedUser = Depends(authenticated_user),
+):
     try:
+        if payload.allowDataModification and not _is_pro_user(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="DBPilot Pro is required to run data modification statements.",
+            )
         columns, rows = service.execute_query(
             payload.connection,
             payload.sql,
@@ -94,5 +128,23 @@ def execute_query(payload: QueryExecuteRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _is_pro_user(user: AuthenticatedUser) -> bool:
+    try:
+        entitlement = subscription_service.status_for_user(
+            user.uid,
+            email=user.email,
+            email_verified=user.email_verified,
+            sign_in_provider=user.sign_in_provider,
+        )
+    except SubscriptionVerificationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Subscription status could not be verified.",
+        ) from exc
+    return entitlement.active

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.firebase_auth import authenticated_uid
 from app.schemas.connections import ConnectionTestRequest, ConnectionTestResponse
 from app.services.db_tester import ConnectionTestError, DbTesterService
 
@@ -15,7 +16,11 @@ def test_connection_info():
     return {"message": "Use POST to test a connection."}
 
 @router.post("/test-connection", response_model=ConnectionTestResponse)
-def test_connection(payload: ConnectionTestRequest):
+def test_connection(
+    payload: ConnectionTestRequest,
+    uid: str = Depends(authenticated_uid),
+):
+    _ = uid
     try:
         return service.test_connection(payload)
     except ConnectionTestError as exc:
