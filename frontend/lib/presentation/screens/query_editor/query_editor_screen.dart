@@ -1267,7 +1267,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
               child: _ToolbarButton(
                   icon: Icons.construction_rounded,
                   label: QeStrings.buildSql,
-                  onTap: _showSqlBuilderSheet)),
+                  onTap: () => unawaited(_showSqlBuilderSheet()))),
           const SizedBox(width: 6),
           Expanded(
               child: _ToolbarButton(
@@ -1389,7 +1389,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                     ? QeStrings.safeModeOnDescription
                     : QeStrings.safeModeOffDescription,
                 child: IconButton.filledTonal(
-                  onPressed: () => _setSafeMode(!_safeMode),
+                  onPressed: () => unawaited(_setSafeMode(!_safeMode)),
                   icon: Icon(_safeMode
                       ? Icons.shield_outlined
                       : Icons.warning_amber_rounded),
@@ -1454,7 +1454,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
                   ),
                   Switch(
                       value: _safeMode,
-                      onChanged: (value) => _setSafeMode(value)),
+                      onChanged: (value) => unawaited(_setSafeMode(value))),
                 ],
               ),
             ),
@@ -1839,7 +1839,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       'drop',
       'truncate',
       'exec',
-      'execute'
+      'execute',
+      'call',
+      'begin'
     }.contains(firstWord);
   }
 
@@ -1855,7 +1857,9 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       'alter',
       'create',
       'exec',
-      'execute'
+      'execute',
+      'call',
+      'begin'
     }.contains(firstWord);
   }
 

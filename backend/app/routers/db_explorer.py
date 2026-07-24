@@ -164,6 +164,7 @@ def _is_data_modification_sql(sql: str) -> bool:
         "exec",
         "execute",
         "call",
+        "begin",
     }
 
 
