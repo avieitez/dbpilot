@@ -109,7 +109,7 @@ def execute_query(
     user: AuthenticatedUser = Depends(authenticated_user),
 ):
     try:
-        if payload.allowDataModification and not _is_pro_user(user):
+        if _is_data_modification_sql(payload.sql) and not _is_pro_user(user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="DBPilot Pro is required to run data modification statements.",
@@ -148,3 +148,30 @@ def _is_pro_user(user: AuthenticatedUser) -> bool:
             detail="Subscription status could not be verified.",
         ) from exc
     return entitlement.active
+
+
+def _is_data_modification_sql(sql: str) -> bool:
+    first_word = _first_sql_word(sql)
+    return first_word in {
+        "insert",
+        "update",
+        "delete",
+        "merge",
+        "create",
+        "alter",
+        "drop",
+        "truncate",
+        "exec",
+        "execute",
+        "call",
+    }
+
+
+def _first_sql_word(sql: str) -> str:
+    clean = (sql or "").lstrip()
+    while clean.startswith("--"):
+        line_end = clean.find("\n")
+        if line_end < 0:
+            return ""
+        clean = clean[line_end + 1 :].lstrip()
+    return clean.split(maxsplit=1)[0].lower() if clean else ""

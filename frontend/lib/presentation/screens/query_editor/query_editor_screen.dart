@@ -177,7 +177,10 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     }
   }
 
-  void _setSafeMode(bool value) {
+  Future<void> _setSafeMode(bool value) async {
+    if (!value && !await _requirePro(ProFeature.advancedSql)) {
+      return;
+    }
     setState(() => _safeMode = value);
   }
 
@@ -709,6 +712,8 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
   }
 
   Future<void> _showSqlBuilderSheet() async {
+    if (!await _requirePro(ProFeature.voiceSql)) return;
+
     final promptController = TextEditingController();
     final speech = stt.SpeechToText();
     var promptText = '';
@@ -727,7 +732,6 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             Future<void> toggleDictation() async {
-              if (!await _requirePro(ProFeature.voiceSql)) return;
               if (listening) {
                 await speech.stop();
                 setSheetState(() => listening = false);
