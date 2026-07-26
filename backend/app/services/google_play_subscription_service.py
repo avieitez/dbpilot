@@ -173,10 +173,9 @@ class GooglePlaySubscriptionService:
             ) from exc
 
         if response.status_code != 200:
-            response_detail = response.text[:500].replace("\n", " ").strip()
             raise SubscriptionVerificationError(
                 "Google Play rejected the purchase token "
-                f"({response.status_code}). Detail: {response_detail}"
+                f"({response.status_code})."
             )
         return response.json()
 

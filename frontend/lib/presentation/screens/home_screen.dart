@@ -1603,7 +1603,11 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      _showInfo('Signed in. UID: ${session.uid}');
+      _showInfo(
+        session.email == null || session.email!.trim().isEmpty
+            ? 'Signed in.'
+            : 'Signed in as ${session.email}.',
+      );
     } catch (error) {
       if (!mounted) return;
       _showInfo('Google sign-in failed: ${_friendlySignInError(error)}');
@@ -2375,6 +2379,11 @@ class _HomeScreenState extends State<HomeScreen> {
     Future<void> setBool(String key) async {
       final value = settings[key];
       if (value is! bool) return;
+      if (key == 'settings.defaultSafeMode' &&
+          value == false &&
+          !PlanAccessService.instance.canUse(ProFeature.advancedSql)) {
+        return;
+      }
       await prefs.setBool(key, value);
       applied++;
     }
@@ -2493,6 +2502,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _clearAccountPreferences(String uid) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('onboarding.paywallShown.$uid');
+    await prefs.remove('settings.avatar.$uid');
   }
 
   void _showBlockingProgress(String message) {

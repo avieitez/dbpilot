@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 @router.delete("")
 def delete_account(uid: str = Depends(authenticated_uid)):
     warnings = _delete_user_firestore_data(uid)
+    if warnings:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not delete all account data.",
+        )
 
     try:
         auth.delete_user(uid, app=get_firebase_app())
