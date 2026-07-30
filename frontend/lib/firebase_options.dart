@@ -65,7 +65,7 @@ class DefaultFirebaseOptions {
     storageBucket: 'dbpilot-feb6e.firebasestorage.app',
     androidClientId: '100510560960-iqhr0e1e51l86p829po90q4f20oif5m1.apps.googleusercontent.com',
     iosClientId: '100510560960-8h8bjc0sisvtvehaunrks7b4gl0krlqm.apps.googleusercontent.com',
-    iosBundleId: 'com.example.dbpilot',
+    iosBundleId: 'com.avieitez.dbpilot',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -76,7 +76,7 @@ class DefaultFirebaseOptions {
     storageBucket: 'dbpilot-feb6e.firebasestorage.app',
     androidClientId: '100510560960-iqhr0e1e51l86p829po90q4f20oif5m1.apps.googleusercontent.com',
     iosClientId: '100510560960-8h8bjc0sisvtvehaunrks7b4gl0krlqm.apps.googleusercontent.com',
-    iosBundleId: 'com.example.dbpilot',
+    iosBundleId: 'com.avieitez.dbpilot',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

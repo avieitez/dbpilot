@@ -2460,8 +2460,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final confirmed = await _confirmSettingsAction(
       title: 'Delete account?',
-      message:
-          'This permanently deletes your DBPilot account, subscription record, saved connections, stored passwords, query history and account preferences. This action cannot be undone.',
+      message: session.plan == SubscriptionPlan.pro
+          ? 'This permanently deletes your DBPilot account, subscription record, saved connections, stored passwords, query history and account preferences. It does not cancel your Google Play subscription. Cancel it from Google Play before deleting the account. This action cannot be undone.'
+          : 'This permanently deletes your DBPilot account, subscription record, saved connections, stored passwords, query history and account preferences. This action cannot be undone.',
     );
     if (!confirmed) return;
 
