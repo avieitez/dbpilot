@@ -1,4 +1,18 @@
-# dbpilot
+# DBPilot
+
+## Firebase Android configuration
+
+`android/app/google-services.json` is committed because Firebase client
+configuration is required at build time. Treat the file as public client
+configuration, not as a backend secret.
+
+Before publishing, restrict the Firebase/Google API key in Google Cloud to:
+
+- Android app package: `com.avieitez.dbpilot`
+- Release certificate SHA-1/SHA-256 fingerprints
+
+Do not commit signing keys, keystores, `key.properties`, service account JSON or
+backend environment variables.
 
 A new Flutter project.
 
