@@ -108,12 +108,59 @@ class AuthService {
       ));
     }
 
+    final payload = _decodeObject(response.body);
+    if (payload['requiresClientAuthDeletion'] == true ||
+        payload['authDeleted'] == false) {
+      await _deleteCurrentFirebaseUser(user);
+    }
+
     try {
       await _googleSignIn.disconnect();
     } catch (_) {
       await _googleSignIn.signOut();
     }
     await _firebaseAuth.signOut();
+  }
+
+  Future<void> _deleteCurrentFirebaseUser(User user) async {
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (error) {
+      if (error.code != 'requires-recent-login') rethrow;
+
+      final reauthenticated = await _reauthenticateWithGoogle(user);
+      if (!reauthenticated) {
+        throw Exception(
+          'Google reauthentication is required to delete the Firebase account.',
+        );
+      }
+      await user.delete();
+    }
+  }
+
+  Future<bool> _reauthenticateWithGoogle(User user) async {
+    try {
+      final googleUser = await _googleSignIn.authenticate();
+      final googleAuth = googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+      );
+      await user.reauthenticateWithCredential(credential);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Map<String, dynamic> _decodeObject(String body) {
+    try {
+      final payload = jsonDecode(body);
+      if (payload is Map<String, dynamic>) return payload;
+    } catch (_) {
+      // The backend should return JSON, but keep deletion compatible with
+      // older deployments that only returned a status code.
+    }
+    return const {};
   }
 
   String _errorMessageFromResponse(

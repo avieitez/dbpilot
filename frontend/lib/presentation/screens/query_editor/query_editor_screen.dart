@@ -161,6 +161,18 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
     if (effectiveSafeMode != defaultSafeMode) {
       await prefs.setBool('settings.defaultSafeMode', effectiveSafeMode);
     }
+    final defaultExportFormatSetting =
+        prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+    final effectiveDefaultExportFormat =
+        PlanAccessService.instance.canUse(ProFeature.exportFormats)
+            ? defaultExportFormatSetting
+            : 'CSV';
+    if (effectiveDefaultExportFormat != defaultExportFormatSetting) {
+      await prefs.setString(
+        'settings.defaultExportFormat',
+        effectiveDefaultExportFormat,
+      );
+    }
     if (!mounted) return;
 
     setState(() {
@@ -175,8 +187,7 @@ class _QueryEditorScreenState extends State<QueryEditorScreen> {
       _exportHeaders = prefs.getBool('settings.exportHeaders') ?? true;
       _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
-      _defaultExportFormat =
-          prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _defaultExportFormat = effectiveDefaultExportFormat;
       _sqlController.highContrast = _isHighContrastEditor;
     });
 

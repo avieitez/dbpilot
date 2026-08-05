@@ -26,12 +26,23 @@ def delete_account(uid: str = Depends(authenticated_uid)):
         if exc.__class__.__name__ == "UserNotFoundError":
             return {"deleted": True}
         logger.exception("Failed to delete Firebase Auth user uid=%s", uid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not delete Firebase Authentication user.",
-        ) from exc
+        return {
+            "deleted": False,
+            "dataDeleted": True,
+            "authDeleted": False,
+            "requiresClientAuthDeletion": True,
+            "warnings": [
+                "Firebase Authentication user must be deleted by the authenticated client."
+            ],
+        }
 
-    return {"deleted": True, "warnings": warnings}
+    return {
+        "deleted": True,
+        "dataDeleted": True,
+        "authDeleted": True,
+        "requiresClientAuthDeletion": False,
+        "warnings": warnings,
+    }
 
 
 def _delete_user_firestore_data(uid: str) -> list[str]:

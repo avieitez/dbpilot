@@ -136,6 +136,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (defaultSafeMode != defaultSafeModeSetting) {
       await prefs.setBool('settings.defaultSafeMode', defaultSafeMode);
     }
+    final defaultExportFormatSetting =
+        prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+    final defaultExportFormat = authSession.plan == SubscriptionPlan.pro
+        ? defaultExportFormatSetting
+        : 'CSV';
+    if (defaultExportFormat != defaultExportFormatSetting) {
+      await prefs.setString(
+        'settings.defaultExportFormat',
+        defaultExportFormat,
+      );
+    }
 
     PlanAccessService.instance.updateSession(authSession);
 
@@ -158,8 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _defaultLimit = prefs.getInt('settings.defaultLimit') ?? 100;
       _editorFontSize = prefs.getDouble('settings.editorFontSize') ?? 14;
       _editorTheme = prefs.getString('settings.editorTheme') ?? 'Dark';
-      _defaultExportFormat =
-          prefs.getString('settings.defaultExportFormat') ?? 'CSV';
+      _defaultExportFormat = defaultExportFormat;
       _csvSeparator = prefs.getString('settings.csvSeparator') ?? ',';
       _loading = false;
     });
@@ -1415,10 +1425,7 @@ class _HomeScreenState extends State<HomeScreen> {
               value: _defaultExportFormat,
               values: const ['CSV', 'JSON', 'Excel'],
               labelFor: (value) => value,
-              onChanged: (value) => _updateStringSetting(
-                  'settings.defaultExportFormat',
-                  value,
-                  (v) => _defaultExportFormat = v),
+              onChanged: _updateDefaultExportFormatSetting,
             ),
             const SizedBox(height: 10),
             SwitchListTile(
@@ -2124,6 +2131,19 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => assign(value));
   }
 
+  Future<void> _updateDefaultExportFormatSetting(String value) async {
+    if (value.toUpperCase() != 'CSV' &&
+        !await _requireProFeature(ProFeature.exportFormats)) {
+      return;
+    }
+
+    await _updateStringSetting(
+      'settings.defaultExportFormat',
+      value,
+      (v) => _defaultExportFormat = v,
+    );
+  }
+
   Future<void> _clearQueryHistory() async {
     final confirmed = await _confirmSettingsAction(
       title: 'Clear query history?',
@@ -2131,9 +2151,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (!confirmed) return;
 
-    await _queryHistoryService.clearHistory();
-    await _loadData();
-    _showInfo('Query history cleared.');
+    try {
+      await _runSettingsActionWithProgress(
+        'Clearing query history...',
+        () async {
+          await _queryHistoryService.clearHistory();
+          await _loadData();
+        },
+      );
+      _showInfo('Query history cleared.');
+    } catch (error) {
+      _showInfo(
+        'Query history could not be cleared: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Future<void> _clearSavedConnections() async {
@@ -2143,9 +2174,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (!confirmed) return;
 
-    await _storageService.clearAllConnections();
-    await _loadData();
-    _showInfo('Saved connections cleared.');
+    try {
+      await _runSettingsActionWithProgress(
+        'Clearing saved connections...',
+        () async {
+          await _storageService.clearAllConnections();
+          await _loadData();
+        },
+      );
+      _showInfo('Saved connections cleared.');
+    } catch (error) {
+      _showInfo(
+        'Saved connections could not be cleared: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Future<void> _exportSettings() async {
@@ -2410,6 +2452,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final value = settings[key];
       if (value is! String) return;
       if (!allowedValues.contains(value)) return;
+      if (key == 'settings.defaultExportFormat' &&
+          value.toUpperCase() != 'CSV' &&
+          !PlanAccessService.instance.canUse(ProFeature.exportFormats)) {
+        return;
+      }
       await prefs.setString(key, value);
       applied++;
     }
@@ -2438,17 +2485,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (!confirmed) return;
 
-    await _storageService.clearActiveConnectionId();
-    QueryEditorScreen.clearSessionCache();
+    try {
+      await _runSettingsActionWithProgress(
+        'Clearing local cache...',
+        () async {
+          await _storageService.clearActiveConnectionId();
+          QueryEditorScreen.clearSessionCache();
 
-    if (!mounted) return;
-    setState(() {
-      _expandedConnectionProvider = null;
-      _expandedQueryProvider = null;
-      _expandedQueryConnectionKey = null;
-    });
-    await _loadData();
-    _showInfo('Local cache cleared.');
+          if (!mounted) return;
+          setState(() {
+            _expandedConnectionProvider = null;
+            _expandedQueryProvider = null;
+            _expandedQueryConnectionKey = null;
+          });
+          await _loadData();
+        },
+      );
+      _showInfo('Local cache cleared.');
+    } catch (error) {
+      _showInfo(
+        'Local cache could not be cleared: ${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Future<void> _deleteAccount() async {
@@ -2527,6 +2585,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _runSettingsActionWithProgress(
+    String message,
+    Future<void> Function() action,
+  ) async {
+    _showBlockingProgress(message);
+    try {
+      await action();
+    } finally {
+      if (mounted) _hideBlockingProgress();
+    }
   }
 
   void _hideBlockingProgress() {
