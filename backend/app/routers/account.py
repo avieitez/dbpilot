@@ -24,7 +24,13 @@ def delete_account(uid: str = Depends(authenticated_uid)):
         auth.delete_user(uid, app=get_firebase_app())
     except Exception as exc:
         if exc.__class__.__name__ == "UserNotFoundError":
-            return {"deleted": True}
+            return {
+                "deleted": True,
+                "dataDeleted": True,
+                "authDeleted": True,
+                "requiresClientAuthDeletion": False,
+                "warnings": warnings,
+            }
         logger.exception("Failed to delete Firebase Auth user uid=%s", uid)
         return {
             "deleted": False,

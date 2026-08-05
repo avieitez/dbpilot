@@ -88,8 +88,16 @@ class AuthService {
 
   Future<void> deleteAccount() async {
     await _ensureGoogleInitialized();
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return;
+    var user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw Exception('No authenticated Firebase user is available.');
+    }
+
+    await _reauthenticateWithGoogle(user);
+    user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw Exception('Firebase user is not available after reauthentication.');
+    }
 
     final idToken = await user.getIdToken(true);
     if (idToken == null || idToken.isEmpty) {
@@ -111,7 +119,7 @@ class AuthService {
     final payload = _decodeObject(response.body);
     if (payload['requiresClientAuthDeletion'] == true ||
         payload['authDeleted'] == false) {
-      await _deleteCurrentFirebaseUser(user);
+      await _deleteCurrentFirebaseUser();
     }
 
     try {
@@ -122,23 +130,42 @@ class AuthService {
     await _firebaseAuth.signOut();
   }
 
-  Future<void> _deleteCurrentFirebaseUser(User user) async {
+  Future<void> _deleteCurrentFirebaseUser() async {
+    var user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw Exception('Firebase user is not available for account deletion.');
+    }
+
     try {
       await user.delete();
     } on FirebaseAuthException catch (error) {
-      if (error.code != 'requires-recent-login') rethrow;
+      if (error.code != 'requires-recent-login') {
+        throw Exception(_firebaseAuthErrorMessage(
+          error,
+          'Firebase account deletion failed',
+        ));
+      }
 
-      final reauthenticated = await _reauthenticateWithGoogle(user);
-      if (!reauthenticated) {
+      await _reauthenticateWithGoogle(user);
+      user = _firebaseAuth.currentUser;
+      if (user == null) {
         throw Exception(
-          'Google reauthentication is required to delete the Firebase account.',
+          'Firebase user is not available after recent-login reauthentication.',
         );
       }
-      await user.delete();
+
+      try {
+        await user.delete();
+      } on FirebaseAuthException catch (retryError) {
+        throw Exception(_firebaseAuthErrorMessage(
+          retryError,
+          'Firebase account deletion failed after reauthentication',
+        ));
+      }
     }
   }
 
-  Future<bool> _reauthenticateWithGoogle(User user) async {
+  Future<void> _reauthenticateWithGoogle(User user) async {
     try {
       final googleUser = await _googleSignIn.authenticate();
       final googleAuth = googleUser.authentication;
@@ -146,10 +173,28 @@ class AuthService {
         idToken: googleAuth.idToken,
       );
       await user.reauthenticateWithCredential(credential);
-      return true;
-    } catch (_) {
-      return false;
+    } on FirebaseAuthException catch (error) {
+      throw Exception(_firebaseAuthErrorMessage(
+        error,
+        'Firebase reauthentication failed',
+      ));
+    } catch (error) {
+      final message = error.toString().replaceFirst('Exception: ', '');
+      throw Exception(
+        'Google reauthentication failed: $message',
+      );
     }
+  }
+
+  String _firebaseAuthErrorMessage(
+    FirebaseAuthException error,
+    String prefix,
+  ) {
+    final message = error.message?.trim();
+    final detail = message == null || message.isEmpty
+        ? error.code
+        : '${error.code}: $message';
+    return '$prefix ($detail).';
   }
 
   Map<String, dynamic> _decodeObject(String body) {
