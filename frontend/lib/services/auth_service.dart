@@ -93,12 +93,6 @@ class AuthService {
       throw Exception('No authenticated Firebase user is available.');
     }
 
-    await _reauthenticateWithGoogle(user);
-    user = _firebaseAuth.currentUser;
-    if (user == null) {
-      throw Exception('Firebase user is not available after reauthentication.');
-    }
-
     final idToken = await user.getIdToken(true);
     if (idToken == null || idToken.isEmpty) {
       throw Exception('A valid session is required to delete the account.');
@@ -167,7 +161,13 @@ class AuthService {
 
   Future<void> _reauthenticateWithGoogle(User user) async {
     try {
-      final googleUser = await _googleSignIn.authenticate();
+      GoogleSignInAccount? googleUser;
+      final lightweightAttempt =
+          _googleSignIn.attemptLightweightAuthentication();
+      if (lightweightAttempt != null) {
+        googleUser = await lightweightAttempt;
+      }
+      googleUser ??= await _googleSignIn.authenticate();
       final googleAuth = googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         idToken: googleAuth.idToken,
